@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "filevine-mcp"
+version = "0.1.0"
+description = "MCP server for Filevine API — full coverage for legal case management"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["filevine", "mcp", "legal", "law", "claude", "case-management"]
+dependencies = [
+    "mcp>=1.0.0",
+    "requests>=2.31.0",
+]
+
+[project.scripts]
+filevine-mcp = "filevine_mcp.server:main"
+filevine-mcp-setup = "filevine_mcp.setup.oauth_flow:main"
+filevine-mcp-verify = "filevine_mcp.setup.verify:main"
+
+[project.urls]
+Homepage = "https://github.com/RosenAdvertising/filevine-mcp"
+Issues = "https://github.com/RosenAdvertising/filevine-mcp/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["filevine_mcp"]
