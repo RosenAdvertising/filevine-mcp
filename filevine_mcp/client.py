@@ -102,6 +102,8 @@ class TokenManager:
 
 class FileVineClient:
     def __init__(self):
+        if not ORG_ID:
+            raise ValueError("FILEVINE_ORG_ID is required. Run filevine-mcp-setup.")
         self.tm = TokenManager()
         self.session = requests.Session()
         self._refresh_headers()
@@ -112,9 +114,8 @@ class FileVineClient:
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
             "Accept": "application/json",
+            "x-fv-orgId": ORG_ID,
         }
-        if ORG_ID:
-            headers["x-fv-orgId"] = ORG_ID
         self.session.headers.update(headers)
 
     def _request(self, method, path, params=None, json_body=None, _rate_retries=0):
