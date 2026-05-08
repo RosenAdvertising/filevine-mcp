@@ -1062,12 +1062,6 @@ def get_org_rate_schedules() -> str:
 
 
 @mcp.tool()
-def get_rate_schedules() -> str:
-    """Get all rate schedules."""
-    return json.dumps(_c().get_rate_schedules(), indent=2)
-
-
-@mcp.tool()
 def set_project_rate_schedule(project_id: str, rate_schedule_id: str) -> str:
     """Set the rate schedule for a project."""
     return json.dumps(_c().set_project_rate_schedule(project_id, rate_schedule_id), indent=2)
@@ -1231,15 +1225,6 @@ def create_team(name: str = "", fields_json: str = "") -> str:
 
 
 @mcp.tool()
-def update_team(team_id: str, name: str = "", fields_json: str = "") -> str:
-    """Update a team."""
-    data = _fields(fields_json)
-    if name:
-        data["name"] = name
-    return json.dumps(_c().update_team(team_id, **data), indent=2)
-
-
-@mcp.tool()
 def delete_team(team_id: str) -> str:
     """Delete a team."""
     return json.dumps(_c().delete_team(team_id), indent=2)
@@ -1260,12 +1245,10 @@ def list_classifications() -> str:
 
 
 @mcp.tool()
-def create_hashtag(name: str = "", fields_json: str = "") -> str:
-    """Create a hashtag for use in notes and tasks."""
+def create_hashtag(hashtag: str, fields_json: str = "") -> str:
+    """Create a hashtag for use in notes and tasks. hashtag is the tag name (without #)."""
     data = _fields(fields_json)
-    if name:
-        data["name"] = name
-    return json.dumps(_c().create_hashtag(**data), indent=2)
+    return json.dumps(_c().create_hashtag(hashtag, **data), indent=2)
 
 
 def main():

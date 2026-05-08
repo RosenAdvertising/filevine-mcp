@@ -143,7 +143,10 @@ class FileVineClient:
         if not resp.ok:
             raise RuntimeError(f"Filevine API error {resp.status_code}: {resp.text[:400]}")
 
-        return resp.json()
+        try:
+            return resp.json()
+        except ValueError:
+            return {"raw": resp.text}
 
     def get(self, path, params=None):
         return self._request("GET", path, params=params)
@@ -556,9 +559,6 @@ class FileVineClient:
     def get_org_rate_schedules(self):
         return self.get("Billing/org/rateschedules")
 
-    def get_rate_schedules(self):
-        return self.get("rate-schedules")
-
     def set_project_rate_schedule(self, project_id, rate_schedule_id):
         return self.put(f"Billing/projects/{project_id}/rateschedule/{rate_schedule_id}")
 
@@ -624,10 +624,10 @@ class FileVineClient:
     # ── Mailroom ──────────────────────────────────────────────────────────────
 
     def list_mailroom(self):
-        return self.get("Mailroom")
+        return self.get("Mailroom/Items")
 
     def create_mailroom_item(self, **fields):
-        return self.post("Mailroom", fields)
+        return self.post("Mailroom/Items/Assign", fields)
 
     # ── Teams ─────────────────────────────────────────────────────────────────
 
@@ -639,9 +639,6 @@ class FileVineClient:
 
     def create_team(self, **fields):
         return self.post("teams", fields)
-
-    def update_team(self, team_id, **fields):
-        return self.put(f"teams/{team_id}", fields)
 
     def delete_team(self, team_id):
         return self.delete(f"teams/{team_id}")
@@ -661,5 +658,5 @@ class FileVineClient:
 
     # ── Hashtags ──────────────────────────────────────────────────────────────
 
-    def create_hashtag(self, **fields):
-        return self.post("hashtags", fields)
+    def create_hashtag(self, hashtag, **fields):
+        return self.post(f"hashtags/{hashtag}", fields if fields else None)
