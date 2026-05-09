@@ -2,6 +2,7 @@
 """Filevine MCP server — FastMCP tools for the Filevine API."""
 
 import json
+from functools import wraps
 from mcp.server.fastmcp import FastMCP
 from filevine_mcp.client import FileVineClient
 
@@ -14,6 +15,25 @@ mcp = FastMCP(
     ),
 )
 
+_raw_tool = mcp.tool
+
+
+def _safe_tool(*args, **kwargs):
+    def decorator(fn):
+        @wraps(fn)
+        def wrapped(*fn_args, **fn_kwargs):
+            try:
+                return fn(*fn_args, **fn_kwargs)
+            except ValueError as e:
+                return json.dumps({"error": str(e)})
+
+        return _raw_tool(*args, **kwargs)(wrapped)
+
+    return decorator
+
+
+mcp.tool = _safe_tool
+
 
 def _c():
     return FileVineClient()
@@ -22,7 +42,13 @@ def _c():
 def _fields(fields_json: str) -> dict:
     if not fields_json:
         return {}
-    return json.loads(fields_json)
+    try:
+        fields = json.loads(fields_json)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid fields_json: {e}") from e
+    if not isinstance(fields, dict):
+        raise ValueError("fields_json must be a JSON object")
+    return fields
 
 
 # ── Users ──────────────────────────────────────────────────────────────────────

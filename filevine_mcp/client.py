@@ -52,6 +52,23 @@ IDENTITY_URL = _region_cfg["identity"]
 TOKEN_URL = f"{IDENTITY_URL}/connect/token"
 
 
+def _retry_after_seconds(resp, default=10):
+    try:
+        return int(resp.headers.get("Retry-After", default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _json_response(resp):
+    try:
+        return resp.json()
+    except ValueError:
+        raise RuntimeError(
+            f"Filevine API returned non-JSON response ({resp.status_code}): "
+            f"{resp.text[:200]}"
+        )
+
+
 class TokenManager:
     def __init__(self):
         self.token_file = CONFIG_DIR / "tokens.json"
@@ -79,6 +96,8 @@ class TokenManager:
         return time.time() >= expires_at - 60
 
     def fetch(self):
+        if not CLIENT_ID or not CLIENT_SECRET:
+            raise RuntimeError("FILEVINE_CLIENT_ID and FILEVINE_CLIENT_SECRET are required. Run: filevine-mcp-setup")
         resp = requests.post(TOKEN_URL, data={
             "grant_type": "client_credentials",
             "client_id": CLIENT_ID,
@@ -86,7 +105,7 @@ class TokenManager:
             "scope": "openid",
         })
         if resp.status_code == 200:
-            tokens = resp.json()
+            tokens = _json_response(resp)
             expires_in = tokens.get("expires_in", 3600)
             tokens["expires_at"] = time.time() + expires_in
             tokens["fetched_at"] = datetime.now(timezone.utc).isoformat()
@@ -131,7 +150,7 @@ class FileVineClient:
             resp = self.session.request(method, url, params=params, json=json_body)
 
         if resp.status_code == 429 and _rate_retries < 3:
-            retry_after = int(resp.headers.get("Retry-After", 10))
+            retry_after = _retry_after_seconds(resp)
             print(f"Rate limited. Waiting {retry_after}s...", file=sys.stderr)
             time.sleep(retry_after)
             return self._request(method, path, params=params, json_body=json_body,
