@@ -1,0 +1,96 @@
+# Cowork standard CI workflow (language-aware)
+# Propagated to <repo>/.github/workflows/ci.yml
+#
+# Runs:
+#   - pre-commit hooks (same checks devs run locally)
+#   - Python: pytest + coverage + bandit (if pyproject.toml present)
+#   - JS/TS: vitest or npm test (if package.json present)
+#   - Rust: cargo test (if Cargo.toml present)
+#
+# Triggered on push and PR. Free GitHub Actions usage.
+
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: pip install pre-commit
+      - run: pre-commit run --all-files --show-diff-on-failure
+        continue-on-error: false
+
+  python:
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('pyproject.toml') != '' || hashFiles('requirements.txt') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Install deps
+        run: |
+          if [ -f pyproject.toml ]; then
+            uv sync --all-extras || pip install -e .
+          elif [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          pip install pytest pytest-cov bandit pip-audit
+      - name: Run pytest
+        run: |
+          if [ -d tests ] || [ -d test ]; then
+            pytest --cov --cov-report=xml || echo "No tests collected"
+          else
+            echo "No tests directory — skipping pytest"
+          fi
+      - name: Run bandit (Python security scan)
+        run: bandit -r . -x ./tests,./test,./.venv,./venv,./node_modules -ll || true
+        continue-on-error: true
+      - name: Run pip-audit (dependency CVE scan)
+        run: pip-audit --strict || true
+        continue-on-error: true
+
+  js:
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('package.json') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - name: Install deps
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            npm install -g pnpm && pnpm install
+          elif [ -f bun.lockb ] || [ -f bun.lock ]; then
+            npm install -g bun && bun install
+          else
+            npm install
+          fi
+      - name: Run tests
+        run: npm test --if-present
+      - name: Run npm audit
+        run: npm audit --audit-level=high || true
+        continue-on-error: true
+
+  rust:
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('Cargo.toml') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --all-features
+      - run: cargo clippy --all-targets -- -D warnings

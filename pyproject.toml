@@ -26,3 +26,10 @@ Issues = "https://github.com/RosenAdvertising/filevine-mcp/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["filevine_mcp"]
+
+[tool.pyright]
+include = ["."]
+exclude = ["**/node_modules", "**/__pycache__", ".venv", "venv", "dist", "build"]
+typeCheckingMode = "basic"
+reportMissingImports = "warning"
+reportMissingTypeStubs = false
