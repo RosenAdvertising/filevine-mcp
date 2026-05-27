@@ -7,6 +7,9 @@
 #   - JS/TS: vitest or npm test (if package.json present)
 #   - Rust: cargo test (if Cargo.toml present)
 #
+# Note: hashFiles() is NOT supported at the job-level `if:` (only at step level).
+# Language gating uses a `detect` job that exposes outputs via test -f.
+#
 # Triggered on push and PR. Free GitHub Actions usage.
 
 name: CI
@@ -18,6 +21,32 @@ on:
     branches: [main, master]
 
 jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      python: ${{ steps.check.outputs.python }}
+      js: ${{ steps.check.outputs.js }}
+      rust: ${{ steps.check.outputs.rust }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: check
+        run: |
+          if [ -f pyproject.toml ] || [ -f requirements.txt ]; then
+            echo "python=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "python=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -f package.json ]; then
+            echo "js=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "js=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -f Cargo.toml ]; then
+            echo "rust=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "rust=false" >> "$GITHUB_OUTPUT"
+          fi
+
   pre-commit:
     runs-on: ubuntu-latest
     steps:
@@ -34,10 +63,11 @@ jobs:
 
   python:
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('pyproject.toml') != '' || hashFiles('requirements.txt') != '' }}
+    needs: detect
+    if: needs.detect.outputs.python == 'true'
     steps:
       - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v7
       - name: Set up Python
         run: uv python install 3.12
       - name: Install deps
@@ -64,7 +94,8 @@ jobs:
 
   js:
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('package.json') != '' }}
+    needs: detect
+    if: needs.detect.outputs.js == 'true'
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -88,9 +119,19 @@ jobs:
 
   rust:
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('Cargo.toml') != '' }}
+    needs: detect
+    if: needs.detect.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --all-features
       - run: cargo clippy --all-targets -- -D warnings
+
+  dependency-review:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
