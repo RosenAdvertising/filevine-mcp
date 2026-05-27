@@ -21,7 +21,7 @@ jobs:
   pre-commit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ hashFiles('pyproject.toml') != '' || hashFiles('requirements.txt') != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v3
       - name: Set up Python
         run: uv python install 3.12
@@ -66,7 +66,7 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ hashFiles('package.json') != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -90,7 +90,7 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ hashFiles('Cargo.toml') != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --all-features
       - run: cargo clippy --all-targets -- -D warnings
