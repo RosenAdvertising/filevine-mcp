@@ -30,6 +30,7 @@ def prompt(label, default="", secret=False):
     suffix = f" [{default}]" if default else ""
     if secret:
         import getpass
+
         val = getpass.getpass(f"{label}{suffix}: ").strip()
     else:
         val = input(f"{label}{suffix}: ").strip()
@@ -38,12 +39,15 @@ def prompt(label, default="", secret=False):
 
 def fetch_token(client_id, client_secret, identity_base):
     token_url = f"{identity_base}/connect/token"
-    resp = requests.post(token_url, data={
-        "grant_type": "client_credentials",
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "scope": "openid",
-    })
+    resp = requests.post(
+        token_url,
+        data={
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "scope": "openid",
+        },
+    )
     if resp.status_code == 200:
         return resp.json()
     raise RuntimeError(f"Token request failed ({resp.status_code}): {resp.text}")
@@ -100,13 +104,9 @@ FILEVINE_REGION={region}
     print(f"✓ Config saved to {CONFIG_DIR}")
     print()
     print("Add to your Claude Desktop config:")
-    print(json.dumps({
-        "mcpServers": {
-            "filevine": {
-                "command": "filevine-mcp"
-            }
-        }
-    }, indent=2))
+    print(
+        json.dumps({"mcpServers": {"filevine": {"command": "filevine-mcp"}}}, indent=2)
+    )
 
 
 if __name__ == "__main__":

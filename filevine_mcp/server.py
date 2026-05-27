@@ -53,6 +53,7 @@ def _fields(fields_json: str) -> dict:
 
 # ── Users ──────────────────────────────────────────────────────────────────────
 
+
 @mcp.tool()
 def get_current_user() -> str:
     """Get the currently authenticated user (me)."""
@@ -96,6 +97,7 @@ def get_user_project_access(user_id: str) -> str:
 
 
 # ── Projects (Matters) ─────────────────────────────────────────────────────────
+
 
 @mcp.tool()
 def list_projects(page: int = 1, page_size: int = 50) -> str:
@@ -173,6 +175,7 @@ def update_project_form(project_id: str, selector: str, fields_json: str) -> str
 
 # ── Project Contacts ───────────────────────────────────────────────────────────
 
+
 @mcp.tool()
 def get_project_contacts(project_id: str) -> str:
     """Get all contacts associated with a project."""
@@ -190,7 +193,9 @@ def add_contact_to_project(
     data = _fields(fields_json)
     if role:
         data["role"] = role
-    return json.dumps(_c().add_contact_to_project(project_id, contact_id, **data), indent=2)
+    return json.dumps(
+        _c().add_contact_to_project(project_id, contact_id, **data), indent=2
+    )
 
 
 @mcp.tool()
@@ -204,16 +209,21 @@ def update_project_contact(
     data = _fields(fields_json)
     if role:
         data["role"] = role
-    return json.dumps(_c().update_project_contact(project_id, project_contact_id, **data), indent=2)
+    return json.dumps(
+        _c().update_project_contact(project_id, project_contact_id, **data), indent=2
+    )
 
 
 @mcp.tool()
 def remove_contact_from_project(project_id: str, project_contact_id: str) -> str:
     """Remove a contact from a project."""
-    return json.dumps(_c().remove_contact_from_project(project_id, project_contact_id), indent=2)
+    return json.dumps(
+        _c().remove_contact_from_project(project_id, project_contact_id), indent=2
+    )
 
 
 # ── Project Collections (Custom Sections) ─────────────────────────────────────
+
 
 @mcp.tool()
 def list_collection_items(
@@ -223,20 +233,26 @@ def list_collection_items(
     page_size: int = 50,
 ) -> str:
     """List items in a custom collection section of a project."""
-    return json.dumps(_c().list_collection_items(project_id, selector, page, page_size), indent=2)
+    return json.dumps(
+        _c().list_collection_items(project_id, selector, page, page_size), indent=2
+    )
 
 
 @mcp.tool()
 def get_collection_item(project_id: str, selector: str, unique_id: str) -> str:
     """Get a single item from a custom collection section."""
-    return json.dumps(_c().get_collection_item(project_id, selector, unique_id), indent=2)
+    return json.dumps(
+        _c().get_collection_item(project_id, selector, unique_id), indent=2
+    )
 
 
 @mcp.tool()
 def create_collection_item(project_id: str, selector: str, fields_json: str) -> str:
     """Create an item in a custom collection section. fields_json is a JSON object."""
     data = _fields(fields_json)
-    return json.dumps(_c().create_collection_item(project_id, selector, **data), indent=2)
+    return json.dumps(
+        _c().create_collection_item(project_id, selector, **data), indent=2
+    )
 
 
 @mcp.tool()
@@ -248,16 +264,21 @@ def update_collection_item(
 ) -> str:
     """Update an item in a custom collection section. fields_json is a JSON object."""
     data = _fields(fields_json)
-    return json.dumps(_c().update_collection_item(project_id, selector, unique_id, **data), indent=2)
+    return json.dumps(
+        _c().update_collection_item(project_id, selector, unique_id, **data), indent=2
+    )
 
 
 @mcp.tool()
 def delete_collection_item(project_id: str, selector: str, unique_id: str) -> str:
     """Delete an item from a custom collection section."""
-    return json.dumps(_c().delete_collection_item(project_id, selector, unique_id), indent=2)
+    return json.dumps(
+        _c().delete_collection_item(project_id, selector, unique_id), indent=2
+    )
 
 
 # ── Project Teams ──────────────────────────────────────────────────────────────
+
 
 @mcp.tool()
 def get_project_team(project_id: str) -> str:
@@ -286,7 +307,9 @@ def update_project_team_member(
 ) -> str:
     """Update a team member's role on a project."""
     data = _fields(fields_json)
-    return json.dumps(_c().update_project_team_member(project_id, user_id, **data), indent=2)
+    return json.dumps(
+        _c().update_project_team_member(project_id, user_id, **data), indent=2
+    )
 
 
 @mcp.tool()
@@ -296,6 +319,7 @@ def remove_project_team_member(project_id: str, user_id: str) -> str:
 
 
 # ── Project Appointments ───────────────────────────────────────────────────────
+
 
 @mcp.tool()
 def list_project_appointments(project_id: str) -> str:
@@ -324,6 +348,7 @@ def create_project_appointment(
 
 # ── Project Notes ──────────────────────────────────────────────────────────────
 
+
 @mcp.tool()
 def list_project_notes(project_id: str) -> str:
     """List all notes on a project."""
@@ -343,6 +368,7 @@ def unpin_note_from_project(project_id: str, note_id: str) -> str:
 
 
 # ── Project Deadlines ──────────────────────────────────────────────────────────
+
 
 @mcp.tool()
 def list_project_deadlines(project_id: str) -> str:
@@ -386,7 +412,9 @@ def update_project_deadline(
         data["name"] = name
     if due_date:
         data["dueDate"] = due_date
-    return json.dumps(_c().update_project_deadline(project_id, deadline_id, **data), indent=2)
+    return json.dumps(
+        _c().update_project_deadline(project_id, deadline_id, **data), indent=2
+    )
 
 
 @mcp.tool()
@@ -396,6 +424,7 @@ def delete_project_deadline(project_id: str, deadline_id: str) -> str:
 
 
 # ── Project Emails ─────────────────────────────────────────────────────────────
+
 
 @mcp.tool()
 def list_project_emails(project_id: str) -> str:
@@ -420,6 +449,7 @@ def add_email_to_project(
 
 
 # ── Project Invoices ───────────────────────────────────────────────────────────
+
 
 @mcp.tool()
 def get_project_invoices(project_id: str) -> str:
@@ -472,6 +502,7 @@ def mark_invoice_sent(invoice_id: str) -> str:
 
 
 # ── Contacts ───────────────────────────────────────────────────────────────────
+
 
 @mcp.tool()
 def list_contacts(page: int = 1, page_size: int = 50) -> str:
@@ -572,6 +603,7 @@ def remove_tag_from_contacts(tag_name: str) -> str:
 
 # ── Tasks ──────────────────────────────────────────────────────────────────────
 
+
 @mcp.tool()
 def list_tasks(page: int = 1, page_size: int = 50) -> str:
     """List all tasks across all projects."""
@@ -640,9 +672,9 @@ def complete_task(task_id: str) -> str:
 
 
 @mcp.tool()
-def uncomplete_task(task_id: str) -> str:
+def incomplete_task(task_id: str) -> str:
     """Mark a completed task as incomplete."""
-    return json.dumps(_c().uncomplete_task(task_id), indent=2)
+    return json.dumps(_c().incomplete_task(task_id), indent=2)
 
 
 @mcp.tool()
@@ -670,6 +702,7 @@ def snooze_task(task_id: str, due_date: str) -> str:
 
 
 # ── Notes ──────────────────────────────────────────────────────────────────────
+
 
 @mcp.tool()
 def list_notes(page: int = 1, page_size: int = 50) -> str:
@@ -761,6 +794,7 @@ def remove_tag_from_notes(tag_name: str) -> str:
 
 
 # ── Documents ──────────────────────────────────────────────────────────────────
+
 
 @mcp.tool()
 def list_documents(page: int = 1, page_size: int = 50) -> str:
@@ -897,6 +931,7 @@ def list_recently_opened_documents() -> str:
 
 # ── Folders ────────────────────────────────────────────────────────────────────
 
+
 @mcp.tool()
 def list_folders(page: int = 1, page_size: int = 50) -> str:
     """List all document folders."""
@@ -940,6 +975,7 @@ def delete_folder(folder_id: str) -> str:
 
 
 # ── Billing ────────────────────────────────────────────────────────────────────
+
 
 @mcp.tool()
 def get_org_billing_codes() -> str:
@@ -1031,7 +1067,9 @@ def update_billing_item(
         data["description"] = description
     if amount:
         data["amount"] = float(amount)
-    return json.dumps(_c().update_billing_item(project_id, billing_item_id, **data), indent=2)
+    return json.dumps(
+        _c().update_billing_item(project_id, billing_item_id, **data), indent=2
+    )
 
 
 @mcp.tool()
@@ -1090,10 +1128,13 @@ def get_org_rate_schedules() -> str:
 @mcp.tool()
 def set_project_rate_schedule(project_id: str, rate_schedule_id: str) -> str:
     """Set the rate schedule for a project."""
-    return json.dumps(_c().set_project_rate_schedule(project_id, rate_schedule_id), indent=2)
+    return json.dumps(
+        _c().set_project_rate_schedule(project_id, rate_schedule_id), indent=2
+    )
 
 
 # ── Webhooks ───────────────────────────────────────────────────────────────────
+
 
 @mcp.tool()
 def list_webhook_events() -> str:
@@ -1121,7 +1162,9 @@ def create_webhook_subscription(
 ) -> str:
     """Create a webhook subscription for a Filevine event."""
     data = _fields(fields_json)
-    return json.dumps(_c().create_webhook_subscription(event_name, target_url, **data), indent=2)
+    return json.dumps(
+        _c().create_webhook_subscription(event_name, target_url, **data), indent=2
+    )
 
 
 @mcp.tool()
@@ -1134,7 +1177,9 @@ def update_webhook_subscription(
     data = _fields(fields_json)
     if target_url:
         data["targetUrl"] = target_url
-    return json.dumps(_c().update_webhook_subscription(subscription_id, **data), indent=2)
+    return json.dumps(
+        _c().update_webhook_subscription(subscription_id, **data), indent=2
+    )
 
 
 @mcp.tool()
@@ -1144,6 +1189,7 @@ def delete_webhook_subscription(subscription_id: str) -> str:
 
 
 # ── Project Types ──────────────────────────────────────────────────────────────
+
 
 @mcp.tool()
 def list_project_types() -> str:
@@ -1159,6 +1205,7 @@ def get_project_type(project_type_id: str) -> str:
 
 # ── Document Series ────────────────────────────────────────────────────────────
 
+
 @mcp.tool()
 def list_document_series() -> str:
     """List all document series templates."""
@@ -1173,6 +1220,7 @@ def get_document_series(series_id: str) -> str:
 
 # ── Reports ────────────────────────────────────────────────────────────────────
 
+
 @mcp.tool()
 def list_reports() -> str:
     """List all available reports."""
@@ -1186,6 +1234,7 @@ def get_report(report_id: str) -> str:
 
 
 # ── Share Links ────────────────────────────────────────────────────────────────
+
 
 @mcp.tool()
 def list_share_links() -> str:
@@ -1214,6 +1263,7 @@ def delete_share_link(link_id: str) -> str:
 
 # ── Mailroom ───────────────────────────────────────────────────────────────────
 
+
 @mcp.tool()
 def list_mailroom() -> str:
     """List all items in the mailroom."""
@@ -1228,6 +1278,7 @@ def create_mailroom_item(fields_json: str) -> str:
 
 
 # ── Teams ──────────────────────────────────────────────────────────────────────
+
 
 @mcp.tool()
 def list_teams() -> str:
@@ -1263,6 +1314,7 @@ def list_project_teams(project_id: str) -> str:
 
 
 # ── Reference Data ─────────────────────────────────────────────────────────────
+
 
 @mcp.tool()
 def list_classifications() -> str:

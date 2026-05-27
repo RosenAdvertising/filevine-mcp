@@ -67,11 +67,11 @@ filevine-mcp-verify
 
 Filevine uses OAuth 2.0 **client credentials** flow — no browser authorization required. Tokens are fetched automatically and refreshed when they expire. Three regions are supported with separate API and identity hosts:
 
-| Region | API Host | Identity Host |
-|--------|----------|---------------|
-| us | api.filevineapp.com | identity.filevineapp.com |
-| ca | api.filevineapp.ca | identity.filevineapp.ca |
-| cjis | api.filevinegov.com | identity.filevinegov.com |
+| Region | API Host            | Identity Host            |
+| ------ | ------------------- | ------------------------ |
+| us     | api.filevineapp.com | identity.filevineapp.com |
+| ca     | api.filevineapp.ca  | identity.filevineapp.ca  |
+| cjis   | api.filevinegov.com | identity.filevinegov.com |
 
 ## Example usage in Claude
 

@@ -97,13 +97,18 @@ class TokenManager:
 
     def fetch(self):
         if not CLIENT_ID or not CLIENT_SECRET:
-            raise RuntimeError("FILEVINE_CLIENT_ID and FILEVINE_CLIENT_SECRET are required. Run: filevine-mcp-setup")
-        resp = requests.post(TOKEN_URL, data={
-            "grant_type": "client_credentials",
-            "client_id": CLIENT_ID,
-            "client_secret": CLIENT_SECRET,
-            "scope": "openid",
-        })
+            raise RuntimeError(
+                "FILEVINE_CLIENT_ID and FILEVINE_CLIENT_SECRET are required. Run: filevine-mcp-setup"
+            )
+        resp = requests.post(
+            TOKEN_URL,
+            data={
+                "grant_type": "client_credentials",
+                "client_id": CLIENT_ID,
+                "client_secret": CLIENT_SECRET,
+                "scope": "openid",
+            },
+        )
         if resp.status_code == 200:
             tokens = _json_response(resp)
             expires_in = tokens.get("expires_in", 3600)
@@ -153,14 +158,21 @@ class FileVineClient:
             retry_after = _retry_after_seconds(resp)
             print(f"Rate limited. Waiting {retry_after}s...", file=sys.stderr)
             time.sleep(retry_after)
-            return self._request(method, path, params=params, json_body=json_body,
-                                  _rate_retries=_rate_retries + 1)
+            return self._request(
+                method,
+                path,
+                params=params,
+                json_body=json_body,
+                _rate_retries=_rate_retries + 1,
+            )
 
         if resp.status_code == 204 or not resp.content:
             return {"success": True}
 
         if not resp.ok:
-            raise RuntimeError(f"Filevine API error {resp.status_code}: {resp.text[:400]}")
+            raise RuntimeError(
+                f"Filevine API error {resp.status_code}: {resp.text[:400]}"
+            )
 
         try:
             return resp.json()
@@ -194,8 +206,9 @@ class FileVineClient:
         return self.get(f"users/{user_id}")
 
     def get_user_tasks(self, user_id, page=1, page_size=50):
-        return self.get(f"users/{user_id}/tasks",
-                        {"requestedPage": page, "pageSize": page_size})
+        return self.get(
+            f"users/{user_id}/tasks", {"requestedPage": page, "pageSize": page_size}
+        )
 
     def get_user_appointments(self, user_id):
         return self.get(f"users/{user_id}/appointments")
@@ -242,7 +255,9 @@ class FileVineClient:
         return self.post(f"projects/{project_id}/contacts", body)
 
     def update_project_contact(self, project_id, project_contact_id, **fields):
-        return self.patch(f"Projects/{project_id}/contacts/{project_contact_id}", fields)
+        return self.patch(
+            f"Projects/{project_id}/contacts/{project_contact_id}", fields
+        )
 
     def remove_contact_from_project(self, project_id, project_contact_id):
         return self.delete(f"Projects/{project_id}/contacts/{project_contact_id}")
@@ -250,8 +265,10 @@ class FileVineClient:
     # ── Project Collections (Custom Sections) ─────────────────────────────────
 
     def list_collection_items(self, project_id, selector, page=1, page_size=50):
-        return self.get(f"Projects/{project_id}/Collections/{selector}",
-                        {"requestedPage": page, "pageSize": page_size})
+        return self.get(
+            f"Projects/{project_id}/Collections/{selector}",
+            {"requestedPage": page, "pageSize": page_size},
+        )
 
     def get_collection_item(self, project_id, selector, unique_id):
         return self.get(f"Projects/{project_id}/Collections/{selector}/{unique_id}")
@@ -260,7 +277,9 @@ class FileVineClient:
         return self.post(f"Projects/{project_id}/Collections/{selector}", fields)
 
     def update_collection_item(self, project_id, selector, unique_id, **fields):
-        return self.patch(f"Projects/{project_id}/Collections/{selector}/{unique_id}", fields)
+        return self.patch(
+            f"Projects/{project_id}/Collections/{selector}/{unique_id}", fields
+        )
 
     def delete_collection_item(self, project_id, selector, unique_id):
         return self.delete(f"Projects/{project_id}/Collections/{selector}/{unique_id}")
@@ -407,8 +426,8 @@ class FileVineClient:
     def complete_task(self, task_id):
         return self.post(f"tasks/{task_id}/complete")
 
-    def uncomplete_task(self, task_id):
-        return self.post(f"tasks/{task_id}/uncomplete")
+    def incomplete_task(self, task_id):
+        return self.post(f"tasks/{task_id}/incomplete")
 
     def assign_task(self, task_id, assignee_id):
         return self.patch(f"tasks/{task_id}/assign/{assignee_id}")
@@ -487,10 +506,14 @@ class FileVineClient:
         return self.post(f"Documents/{document_id}/unlock")
 
     def move_documents(self, document_ids: list, folder_id):
-        return self.post("Documents/move", {"documentIds": document_ids, "folderId": folder_id})
+        return self.post(
+            "Documents/move", {"documentIds": document_ids, "folderId": folder_id}
+        )
 
     def copy_documents(self, document_ids: list, folder_id):
-        return self.post("Documents/copy", {"documentIds": document_ids, "folderId": folder_id})
+        return self.post(
+            "Documents/copy", {"documentIds": document_ids, "folderId": folder_id}
+        )
 
     def batch_upload_documents(self, **fields):
         return self.post("Documents/batch/upload", fields)
@@ -502,8 +525,10 @@ class FileVineClient:
         return self.post("Documents/batch/download", {"documentIds": document_ids})
 
     def search_documents(self, query, page=1, page_size=50):
-        return self.get("DocumentSearch",
-                        {"query": query, "requestedPage": page, "pageSize": page_size})
+        return self.get(
+            "DocumentSearch",
+            {"query": query, "requestedPage": page, "pageSize": page_size},
+        )
 
     def add_document_to_project(self, project_id, document_id):
         return self.post(f"Projects/{project_id}/Documents/{document_id}")
@@ -564,7 +589,9 @@ class FileVineClient:
         return self.delete(f"Billing/Delete/BillingItem/{billing_item_id}")
 
     def get_billing_item(self, project_id, billing_item_id):
-        return self.get(f"billing/projects/{project_id}/billing-items/{billing_item_id}")
+        return self.get(
+            f"billing/projects/{project_id}/billing-items/{billing_item_id}"
+        )
 
     def create_payment(self, project_id, **fields):
         return self.post(f"billing/projects/{project_id}/payment", fields)
@@ -579,7 +606,9 @@ class FileVineClient:
         return self.get("Billing/org/rateschedules")
 
     def set_project_rate_schedule(self, project_id, rate_schedule_id):
-        return self.put(f"Billing/projects/{project_id}/rateschedule/{rate_schedule_id}")
+        return self.put(
+            f"Billing/projects/{project_id}/rateschedule/{rate_schedule_id}"
+        )
 
     # ── Webhooks ──────────────────────────────────────────────────────────────
 

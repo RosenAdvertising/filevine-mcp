@@ -11,7 +11,9 @@ def main():
     try:
         client = FileVineClient()
         me = client.get_me()
-        name = me.get("fullName") or me.get("firstName", "") + " " + me.get("lastName", "")
+        name = me.get("fullName") or me.get("firstName", "") + " " + me.get(
+            "lastName", ""
+        )
         email = me.get("email", "")
         print(f"✓ Authenticated as: {name.strip()} ({email})")
         print()
