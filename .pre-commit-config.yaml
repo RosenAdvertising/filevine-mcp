@@ -69,7 +69,8 @@ repos:
       - id: pyright
         name: pyright (Python type check, staged files only)
         entry: pyright
-        language: system
+        language: node
+        additional_dependencies: ["pyright@1.1.410"]
         types_or: [python, pyi]
 
   # ─────────────────────────────────────────────────────────────

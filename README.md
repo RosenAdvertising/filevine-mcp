@@ -76,15 +76,15 @@ Filevine uses OAuth 2.0 **client credentials** flow — no browser authorization
 ## Example usage in Claude
 
 > "List my open projects"
-
+>
 > "Create a task on project 456 — send retainer agreement to client"
-
+>
 > "Get the billing vitals for project 789"
-
+>
 > "Add a note to project 123 — client called re: mediation date"
-
+>
 > "Search documents for 'deposition transcript'"
-
+>
 > "List all webhook event types available"
 
 ## License
