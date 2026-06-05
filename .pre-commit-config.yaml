@@ -49,6 +49,12 @@ repos:
     hooks:
       - id: typos
         args: [--write-changes]
+        # Walk the tree instead of receiving explicit paths from pre-commit.
+        # typos' [files].extend-exclude in typos.toml only filters files it
+        # discovers by walking — it does NOT filter paths passed explicitly.
+        # With pass_filenames (the default) the data-file excludes are ignored;
+        # without it, typos.toml is the single source of exclude truth.
+        pass_filenames: false
 
   # ─────────────────────────────────────────────────────────────
   # Python
@@ -100,19 +106,27 @@ repos:
 
   # ─────────────────────────────────────────────────────────────
   # Rust (only fires on .rs files staged — silent in non-Rust repos)
+  #
+  # Cargo.toml location is auto-detected so the hooks work in both layouts:
+  #   - Standard Rust repo: Cargo.toml at the repo root
+  #   - Tauri repo:         Cargo.toml under src-tauri/
+  # The shell prefix cd's into src-tauri/ only when that's where Cargo.toml lives.
   # ─────────────────────────────────────────────────────────────
   - repo: local
     hooks:
       - id: rustfmt
         name: rustfmt
-        entry: cargo fmt --all --check
+        entry: bash -c 'if [ -f src-tauri/Cargo.toml ] && [ ! -f Cargo.toml ]; then cd src-tauri; fi; cargo fmt --all --check'
         language: system
         types: [rust]
         pass_filenames: false
 
       - id: clippy
         name: clippy
-        entry: cargo clippy --all-targets -- -D warnings
+        # Warn-only by default — surfaces clippy findings without blocking commits.
+        # Repos can ratchet up by changing `-- -W warnings` to `-- -D warnings` in
+        # their own .pre-commit-config.yaml once their Rust baseline is clean.
+        entry: bash -c 'if [ -f src-tauri/Cargo.toml ] && [ ! -f Cargo.toml ]; then cd src-tauri; fi; cargo clippy --all-targets -- -W warnings'
         language: system
         types: [rust]
         pass_filenames: false

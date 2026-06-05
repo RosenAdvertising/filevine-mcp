@@ -57,6 +57,16 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "20"
+      # JS/TS repos: install node deps so the eslint pre-commit hook
+      # (`npx --no-install eslint`) can resolve a locally-installed eslint.
+      # Gated on package.json so Python/Rust-only repos skip it. npm ci is
+      # used for a clean, lockfile-pinned install; falls back to npm install
+      # if the lockfile is out of sync.
+      - name: Install node deps (JS/TS lint hooks)
+        run: |
+          if [ -f package.json ]; then
+            npm ci || npm install
+          fi
       - run: pip install pre-commit
       - run: pre-commit run --all-files --show-diff-on-failure
         continue-on-error: false
@@ -127,11 +137,26 @@ jobs:
       - run: cargo test --all-features
       - run: cargo clippy --all-targets -- -D warnings
 
-  dependency-review:
+  dependency-scan:
     runs-on: ubuntu-latest
+    # OSV-Scanner (Google) scans lockfiles against the OSV.dev vulnerability DB.
+    # Replaces dependency-review-action, which requires GitHub Advanced Security
+    # (Dependency Graph + Code Security). GHAS is unavailable on the AsiaProGolf org
+    # AND on personal private repos, so dependency-review red-X'd every PR there.
+    # OSV-Scanner is free and runs on ANY repo — public, private, any org — with no
+    # GHAS dependency. We use the COMPOSITE action (not the reusable PR workflow):
+    # the reusable workflow uploads SARIF to the Security tab, which on private repos
+    # is itself a GHAS feature and would hit the same wall. The composite action runs
+    # the scanner in-container, prints findings to the job log, and fails the job on
+    # any known vuln. (Toby, 2026-06-05: keep a working check everywhere, don't skip.)
+    # NOTE: scans the whole lockfile and fails on any severity — stricter than the old
+    # fail-on-severity:high diff gate. Add a .osv-scanner.toml allowlist for false
+    # positives. Docs: https://google.github.io/osv-scanner/github-action/
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/dependency-review-action@v4
+      - uses: google/osv-scanner-action/osv-scanner-action@v2.3.8
         with:
-          fail-on-severity: high
+          scan-args: |-
+            --recursive
+            ./
