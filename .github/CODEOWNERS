@@ -1,0 +1,4 @@
+# Default reviewer for all files.
+# When adding a collaborator, add a targeted line below this one:
+#   path/or/pattern/ @tobyrosen @new-collaborator
+* @tobyrosen
