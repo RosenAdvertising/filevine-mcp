@@ -9,6 +9,7 @@
 ## Type
 
 <!-- Check one -->
+
 - [ ] type:feat
 - [ ] type:fix
 - [ ] type:chore
