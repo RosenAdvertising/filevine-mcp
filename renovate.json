@@ -1,0 +1,6 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "github>RosenAdvertising/fleet-ci:renovate-config"
+  ]
+}
