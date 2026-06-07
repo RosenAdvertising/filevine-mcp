@@ -53,10 +53,10 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: "3.14.5"
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "20.20.2"
       # JS/TS repos: install node deps so the eslint pre-commit hook
       # (`npx --no-install eslint`) can resolve a locally-installed eslint.
       # Gated on package.json so Python/Rust-only repos skip it. npm ci is
@@ -110,7 +110,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "20.20.2"
           cache: "npm"
       - name: Install deps
         run: |
