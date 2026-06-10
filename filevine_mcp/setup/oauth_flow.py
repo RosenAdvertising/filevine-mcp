@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Filevine MCP setup — client credentials configuration (no browser required)."""
+"""Filevine MCP setup — client credentials configuration (no browser required).
+
+Credentials (Client ID, Client Secret, Org ID, Region) are stored securely via
+the OS keyring (macOS Keychain / Windows Credential Manager / Linux Secret
+Service), falling back to a 0600 ``.env`` file when no keyring backend is
+available or ``FILEVINE_MCP_USE_KEYRING=0`` is set.
+"""
 
 import json
 import os
@@ -7,6 +13,8 @@ import sys
 import time
 import requests
 from pathlib import Path
+
+from filevine_mcp import credentials
 
 CONFIG_DIR = Path.home() / ".filevine-mcp"
 
@@ -84,24 +92,25 @@ def main():
         print(f"✗ Failed: {e}")
         sys.exit(1)
 
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    backend = credentials.set_secret("FILEVINE_CLIENT_ID", client_id)
+    credentials.set_secret("FILEVINE_CLIENT_SECRET", client_secret)
+    credentials.set_secret("FILEVINE_ORG_ID", org_id)
+    credentials.set_secret("FILEVINE_REGION", region)
 
-    env_file = CONFIG_DIR / ".env"
-    env_content = f"""# Filevine MCP configuration
-FILEVINE_CLIENT_ID={client_id}
-FILEVINE_CLIENT_SECRET={client_secret}
-FILEVINE_ORG_ID={org_id}
-FILEVINE_REGION={region}
-"""
-    env_file.write_text(env_content)
-    os.chmod(env_file, 0o600)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
     token_file = CONFIG_DIR / "tokens.json"
     token_file.write_text(json.dumps(tokens, indent=2))
     os.chmod(token_file, 0o600)
 
     print()
-    print(f"✓ Config saved to {CONFIG_DIR}")
+    if backend == "keyring":
+        print(
+            f"✓ Credentials saved to the OS keyring ({credentials.storage_backend()})."
+        )
+    else:
+        print(f"✓ Credentials saved to {credentials.ENV_FILE} (0600).")
+    print(f"✓ Tokens saved to {token_file}")
     print()
     print("Add to your Claude Desktop config:")
     print(
