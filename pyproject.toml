@@ -13,6 +13,7 @@ keywords = ["filevine", "mcp", "legal", "law", "claude", "case-management"]
 dependencies = [
     "mcp>=1.0.0",
     "requests>=2.31.0",
+    "keyring>=24.0.0",
 ]
 
 [project.scripts]
