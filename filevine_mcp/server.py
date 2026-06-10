@@ -149,8 +149,19 @@ def update_project(
 
 
 @mcp.tool()
-def archive_project(project_id: str) -> str:
-    """Archive (soft-delete) a project."""
+def archive_project(project_id: str, confirm: bool = False) -> str:
+    """Archive (soft-delete) a project.
+
+    DESTRUCTIVE. You MUST set confirm=True to proceed.
+    Confirm with the user before calling this tool with confirm=True.
+    """
+    if not confirm:
+        return json.dumps(
+            {
+                "error": "archive_project requires confirm=True. Confirm this action with the user before proceeding."
+            },
+            indent=2,
+        )
     return json.dumps(_c().archive_project(project_id), indent=2)
 
 
@@ -215,8 +226,21 @@ def update_project_contact(
 
 
 @mcp.tool()
-def remove_contact_from_project(project_id: str, project_contact_id: str) -> str:
-    """Remove a contact from a project."""
+def remove_contact_from_project(
+    project_id: str, project_contact_id: str, confirm: bool = False
+) -> str:
+    """Remove a contact from a project.
+
+    DESTRUCTIVE. You MUST set confirm=True to proceed.
+    Confirm with the user before calling this tool with confirm=True.
+    """
+    if not confirm:
+        return json.dumps(
+            {
+                "error": "remove_contact_from_project requires confirm=True. Confirm this action with the user before proceeding."
+            },
+            indent=2,
+        )
     return json.dumps(
         _c().remove_contact_from_project(project_id, project_contact_id), indent=2
     )
@@ -270,8 +294,21 @@ def update_collection_item(
 
 
 @mcp.tool()
-def delete_collection_item(project_id: str, selector: str, unique_id: str) -> str:
-    """Delete an item from a custom collection section."""
+def delete_collection_item(
+    project_id: str, selector: str, unique_id: str, confirm: bool = False
+) -> str:
+    """Delete an item from a custom collection section.
+
+    DESTRUCTIVE. You MUST set confirm=True to proceed.
+    Confirm with the user before calling this tool with confirm=True.
+    """
+    if not confirm:
+        return json.dumps(
+            {
+                "error": "delete_collection_item requires confirm=True. Confirm this action with the user before proceeding."
+            },
+            indent=2,
+        )
     return json.dumps(
         _c().delete_collection_item(project_id, selector, unique_id), indent=2
     )
@@ -313,8 +350,21 @@ def update_project_team_member(
 
 
 @mcp.tool()
-def remove_project_team_member(project_id: str, user_id: str) -> str:
-    """Remove a team member from a project."""
+def remove_project_team_member(
+    project_id: str, user_id: str, confirm: bool = False
+) -> str:
+    """Remove a team member from a project.
+
+    DESTRUCTIVE. You MUST set confirm=True to proceed.
+    Confirm with the user before calling this tool with confirm=True.
+    """
+    if not confirm:
+        return json.dumps(
+            {
+                "error": "remove_project_team_member requires confirm=True. Confirm this action with the user before proceeding."
+            },
+            indent=2,
+        )
     return json.dumps(_c().remove_project_team_member(project_id, user_id), indent=2)
 
 
@@ -472,14 +522,36 @@ def update_invoice(project_id: str, invoice_id: str, fields_json: str = "") -> s
 
 
 @mcp.tool()
-def delete_invoice(project_id: str, invoice_id: str) -> str:
-    """Delete an invoice from a project."""
+def delete_invoice(project_id: str, invoice_id: str, confirm: bool = False) -> str:
+    """Delete an invoice from a project.
+
+    DESTRUCTIVE. You MUST set confirm=True to proceed.
+    Confirm with the user before calling this tool with confirm=True.
+    """
+    if not confirm:
+        return json.dumps(
+            {
+                "error": "delete_invoice requires confirm=True. Confirm this action with the user before proceeding."
+            },
+            indent=2,
+        )
     return json.dumps(_c().delete_invoice(project_id, invoice_id), indent=2)
 
 
 @mcp.tool()
-def finalize_invoice(project_id: str, invoice_id: str) -> str:
-    """Finalize an invoice on a project."""
+def finalize_invoice(project_id: str, invoice_id: str, confirm: bool = False) -> str:
+    """Finalize an invoice on a project.
+
+    FINANCIAL WRITE. Finalizing an invoice is not easily reversible. You MUST set confirm=True to proceed.
+    Confirm with the user before calling this tool with confirm=True.
+    """
+    if not confirm:
+        return json.dumps(
+            {
+                "error": "finalize_invoice requires confirm=True. Confirm this action with the user before proceeding."
+            },
+            indent=2,
+        )
     return json.dumps(_c().finalize_invoice(project_id, invoice_id), indent=2)
 
 
@@ -490,8 +562,19 @@ def get_invoice_pdf(invoice_id: str) -> str:
 
 
 @mcp.tool()
-def approve_invoice(invoice_id: str) -> str:
-    """Approve an invoice."""
+def approve_invoice(invoice_id: str, confirm: bool = False) -> str:
+    """Approve an invoice.
+
+    FINANCIAL WRITE. You MUST set confirm=True to proceed.
+    Confirm with the user before calling this tool with confirm=True.
+    """
+    if not confirm:
+        return json.dumps(
+            {
+                "error": "approve_invoice requires confirm=True. Confirm this action with the user before proceeding."
+            },
+            indent=2,
+        )
     return json.dumps(_c().approve_invoice(invoice_id), indent=2)
 
 
@@ -596,8 +679,19 @@ def get_countries() -> str:
 
 
 @mcp.tool()
-def remove_tag_from_contacts(tag_name: str) -> str:
-    """Remove a tag from all contacts that have it."""
+def remove_tag_from_contacts(tag_name: str, confirm: bool = False) -> str:
+    """Remove a tag from all contacts that have it.
+
+    DESTRUCTIVE — removes the tag from every contact in the org that has it. You MUST set confirm=True to proceed.
+    Confirm with the user before calling this tool with confirm=True.
+    """
+    if not confirm:
+        return json.dumps(
+            {
+                "error": "remove_tag_from_contacts requires confirm=True. This removes the tag from ALL matching contacts. Confirm with the user before proceeding."
+            },
+            indent=2,
+        )
     return json.dumps(_c().remove_tag_from_contacts(tag_name), indent=2)
 
 
@@ -660,8 +754,19 @@ def update_task(
 
 
 @mcp.tool()
-def delete_task(task_id: str) -> str:
-    """Delete a task."""
+def delete_task(task_id: str, confirm: bool = False) -> str:
+    """Delete a task.
+
+    DESTRUCTIVE. You MUST set confirm=True to proceed.
+    Confirm with the user before calling this tool with confirm=True.
+    """
+    if not confirm:
+        return json.dumps(
+            {
+                "error": "delete_task requires confirm=True. Confirm this action with the user before proceeding."
+            },
+            indent=2,
+        )
     return json.dumps(_c().delete_task(task_id), indent=2)
 
 
@@ -788,8 +893,19 @@ def update_note_comment(
 
 
 @mcp.tool()
-def remove_tag_from_notes(tag_name: str) -> str:
-    """Remove a tag from all notes that have it."""
+def remove_tag_from_notes(tag_name: str, confirm: bool = False) -> str:
+    """Remove a tag from all notes that have it.
+
+    DESTRUCTIVE — removes the tag from every note in the org that has it. You MUST set confirm=True to proceed.
+    Confirm with the user before calling this tool with confirm=True.
+    """
+    if not confirm:
+        return json.dumps(
+            {
+                "error": "remove_tag_from_notes requires confirm=True. This removes the tag from ALL matching notes. Confirm with the user before proceeding."
+            },
+            indent=2,
+        )
     return json.dumps(_c().remove_tag_from_notes(tag_name), indent=2)
 
 
@@ -840,8 +956,19 @@ def update_document(
 
 
 @mcp.tool()
-def delete_document(document_id: str) -> str:
-    """Delete a document."""
+def delete_document(document_id: str, confirm: bool = False) -> str:
+    """Delete a document.
+
+    DESTRUCTIVE. You MUST set confirm=True to proceed.
+    Confirm with the user before calling this tool with confirm=True.
+    """
+    if not confirm:
+        return json.dumps(
+            {
+                "error": "delete_document requires confirm=True. Confirm this action with the user before proceeding."
+            },
+            indent=2,
+        )
     return json.dumps(_c().delete_document(document_id), indent=2)
 
 
@@ -918,8 +1045,19 @@ def add_document_to_project(project_id: str, document_id: str) -> str:
 
 
 @mcp.tool()
-def remove_tag_from_documents(tag_name: str) -> str:
-    """Remove a tag from all documents that have it."""
+def remove_tag_from_documents(tag_name: str, confirm: bool = False) -> str:
+    """Remove a tag from all documents that have it.
+
+    DESTRUCTIVE — removes the tag from every document in the org that has it. You MUST set confirm=True to proceed.
+    Confirm with the user before calling this tool with confirm=True.
+    """
+    if not confirm:
+        return json.dumps(
+            {
+                "error": "remove_tag_from_documents requires confirm=True. This removes the tag from ALL matching documents. Confirm with the user before proceeding."
+            },
+            indent=2,
+        )
     return json.dumps(_c().remove_tag_from_documents(tag_name), indent=2)
 
 
@@ -969,8 +1107,19 @@ def update_folder(folder_id: str, name: str = "", fields_json: str = "") -> str:
 
 
 @mcp.tool()
-def delete_folder(folder_id: str) -> str:
-    """Delete a document folder."""
+def delete_folder(folder_id: str, confirm: bool = False) -> str:
+    """Delete a document folder.
+
+    DESTRUCTIVE. You MUST set confirm=True to proceed.
+    Confirm with the user before calling this tool with confirm=True.
+    """
+    if not confirm:
+        return json.dumps(
+            {
+                "error": "delete_folder requires confirm=True. Confirm this action with the user before proceeding."
+            },
+            indent=2,
+        )
     return json.dumps(_c().delete_folder(folder_id), indent=2)
 
 
@@ -1039,8 +1188,20 @@ def create_billing_item(
     rate: str = "",
     hours: str = "",
     fields_json: str = "",
+    confirm: bool = False,
 ) -> str:
-    """Create a billing item (time entry or expense) on a project."""
+    """Create a billing item (time entry or expense) on a project.
+
+    FINANCIAL WRITE. You MUST set confirm=True to proceed.
+    Confirm billing details with the user before calling this tool with confirm=True.
+    """
+    if not confirm:
+        return json.dumps(
+            {
+                "error": "create_billing_item requires confirm=True. Confirm billing details with the user before proceeding."
+            },
+            indent=2,
+        )
     data = _fields(fields_json)
     if description:
         data["description"] = description
@@ -1060,8 +1221,20 @@ def update_billing_item(
     description: str = "",
     amount: str = "",
     fields_json: str = "",
+    confirm: bool = False,
 ) -> str:
-    """Update a billing item on a project."""
+    """Update a billing item on a project.
+
+    FINANCIAL WRITE. You MUST set confirm=True to proceed.
+    Confirm billing details with the user before calling this tool with confirm=True.
+    """
+    if not confirm:
+        return json.dumps(
+            {
+                "error": "update_billing_item requires confirm=True. Confirm billing details with the user before proceeding."
+            },
+            indent=2,
+        )
     data = _fields(fields_json)
     if description:
         data["description"] = description
@@ -1073,8 +1246,19 @@ def update_billing_item(
 
 
 @mcp.tool()
-def delete_billing_item(billing_item_id: str) -> str:
-    """Delete a billing item."""
+def delete_billing_item(billing_item_id: str, confirm: bool = False) -> str:
+    """Delete a billing item.
+
+    FINANCIAL WRITE / DESTRUCTIVE. You MUST set confirm=True to proceed.
+    Confirm with the user before calling this tool with confirm=True.
+    """
+    if not confirm:
+        return json.dumps(
+            {
+                "error": "delete_billing_item requires confirm=True. Confirm this action with the user before proceeding."
+            },
+            indent=2,
+        )
     return json.dumps(_c().delete_billing_item(billing_item_id), indent=2)
 
 
@@ -1085,8 +1269,20 @@ def create_payment(
     date: str = "",
     description: str = "",
     fields_json: str = "",
+    confirm: bool = False,
 ) -> str:
-    """Record a payment on a project."""
+    """Record a payment on a project.
+
+    FINANCIAL WRITE. You MUST set confirm=True to proceed.
+    Confirm the payment amount and project with the user before calling this tool with confirm=True.
+    """
+    if not confirm:
+        return json.dumps(
+            {
+                "error": "create_payment requires confirm=True. Confirm payment details with the user before proceeding."
+            },
+            indent=2,
+        )
     data = _fields(fields_json)
     if amount:
         data["amount"] = float(amount)
@@ -1103,8 +1299,20 @@ def create_payment_and_apply(
     amount: str = "",
     invoice_id: str = "",
     fields_json: str = "",
+    confirm: bool = False,
 ) -> str:
-    """Record a payment and apply it to an invoice."""
+    """Record a payment and apply it to an invoice.
+
+    FINANCIAL WRITE. You MUST set confirm=True to proceed.
+    Confirm the payment amount, project, and invoice with the user before calling this tool with confirm=True.
+    """
+    if not confirm:
+        return json.dumps(
+            {
+                "error": "create_payment_and_apply requires confirm=True. Confirm payment details with the user before proceeding."
+            },
+            indent=2,
+        )
     data = _fields(fields_json)
     if amount:
         data["amount"] = float(amount)
@@ -1183,8 +1391,19 @@ def update_webhook_subscription(
 
 
 @mcp.tool()
-def delete_webhook_subscription(subscription_id: str) -> str:
-    """Delete a webhook subscription."""
+def delete_webhook_subscription(subscription_id: str, confirm: bool = False) -> str:
+    """Delete a webhook subscription.
+
+    DESTRUCTIVE. You MUST set confirm=True to proceed.
+    Confirm with the user before calling this tool with confirm=True.
+    """
+    if not confirm:
+        return json.dumps(
+            {
+                "error": "delete_webhook_subscription requires confirm=True. Confirm this action with the user before proceeding."
+            },
+            indent=2,
+        )
     return json.dumps(_c().delete_webhook_subscription(subscription_id), indent=2)
 
 
@@ -1256,8 +1475,19 @@ def create_share_link(fields_json: str) -> str:
 
 
 @mcp.tool()
-def delete_share_link(link_id: str) -> str:
-    """Delete a share link."""
+def delete_share_link(link_id: str, confirm: bool = False) -> str:
+    """Delete a share link.
+
+    DESTRUCTIVE. You MUST set confirm=True to proceed.
+    Confirm with the user before calling this tool with confirm=True.
+    """
+    if not confirm:
+        return json.dumps(
+            {
+                "error": "delete_share_link requires confirm=True. Confirm this action with the user before proceeding."
+            },
+            indent=2,
+        )
     return json.dumps(_c().delete_share_link(link_id), indent=2)
 
 
@@ -1302,8 +1532,19 @@ def create_team(name: str = "", fields_json: str = "") -> str:
 
 
 @mcp.tool()
-def delete_team(team_id: str) -> str:
-    """Delete a team."""
+def delete_team(team_id: str, confirm: bool = False) -> str:
+    """Delete a team.
+
+    DESTRUCTIVE. You MUST set confirm=True to proceed.
+    Confirm with the user before calling this tool with confirm=True.
+    """
+    if not confirm:
+        return json.dumps(
+            {
+                "error": "delete_team requires confirm=True. Confirm this action with the user before proceeding."
+            },
+            indent=2,
+        )
     return json.dumps(_c().delete_team(team_id), indent=2)
 
 
@@ -1327,6 +1568,131 @@ def create_hashtag(hashtag: str, fields_json: str = "") -> str:
     """Create a hashtag for use in notes and tasks. hashtag is the tag name (without #)."""
     data = _fields(fields_json)
     return json.dumps(_c().create_hashtag(hashtag, **data), indent=2)
+
+
+# ── Resources ─────────────────────────────────────────────────────────────────
+
+
+@mcp.resource("filevine://project_types", mime_type="application/json")
+def project_types_resource() -> str:
+    """All project (matter) types configured in this Filevine organisation — read-only reference data."""
+    return json.dumps(_c().list_project_types(), indent=2)
+
+
+@mcp.resource("filevine://classifications", mime_type="application/json")
+def classifications_resource() -> str:
+    """All document classification categories configured in this Filevine organisation — read-only reference data."""
+    return json.dumps(_c().list_classifications(), indent=2)
+
+
+@mcp.resource("filevine://security-notes", mime_type="text/markdown")
+def security_notes_resource() -> str:
+    """Security posture documentation for this Filevine MCP server."""
+    return """\
+# Filevine MCP — Security Notes
+
+## Confirmation-Gated Operations (SEC-E)
+
+The following tools require `confirm=True` to execute. **Never pass confirm=True
+without first obtaining explicit user confirmation.** Return the tool's error
+response to the user and ask for confirmation before re-calling with confirm=True.
+
+### Destructive Operations (14 tools)
+These permanently delete or remove data:
+
+- `archive_project` — archive a project (matter)
+- `remove_contact_from_project` — remove a contact from a project
+- `delete_collection_item` — delete a collection section item
+- `remove_project_team_member` — remove a team member from a project
+- `delete_invoice` — permanently delete an invoice
+- `remove_tag_from_contacts` — bulk-remove a tag from contacts
+- `delete_task` — delete a task
+- `remove_tag_from_notes` — bulk-remove a tag from notes
+- `delete_document` — delete a document
+- `remove_tag_from_documents` — bulk-remove a tag from documents
+- `delete_folder` — delete a folder
+- `delete_billing_item` — delete a billing line item
+- `delete_webhook_subscription` — delete a webhook subscription
+- `delete_share_link` — delete a share link
+- `delete_team` — delete a team
+
+### Financial Operations (6 tools)
+These create or modify financial records:
+
+- `finalize_invoice` — finalize (lock) an invoice
+- `approve_invoice` — approve an invoice for payment
+- `create_billing_item` — create a billing line item
+- `update_billing_item` — update a billing line item
+- `create_payment` — record a payment
+- `create_payment_and_apply` — record and apply a payment to an invoice
+
+**Agent guidance**: always present the operation details to the user and wait for
+explicit confirmation before calling any of the above tools with confirm=True.
+Auto-confirming is not permitted.
+"""
+
+
+# ── Prompts ───────────────────────────────────────────────────────────────────
+
+
+@mcp.prompt()
+def daily_briefing() -> str:
+    """Morning briefing: open projects needing attention, overdue tasks, and pending billing."""
+    return """You are a legal assistant. Run a morning briefing using the Filevine tools:
+
+1. List all active projects (list_projects) — note any recently opened or updated
+2. List all open tasks (list_tasks) — flag any overdue (due before today) with ⚠️
+3. List project deadlines across active matters (list_project_deadlines) — highlight upcoming 7-day deadlines
+4. List billing items needing attention (list_billing_items or get_org_billing_settings) — identify unbilled work
+5. Summarize: what needs attention today, ranked by urgency
+
+Be specific — include project names, task names, due dates, and amounts. Keep it concise."""
+
+
+@mcp.prompt()
+def intake_triage(project_id: str) -> str:
+    """Triage a new or recently opened project: review contacts, tasks, documents, and billing setup."""
+    return f"""Triage project {project_id} to ensure it is properly set up:
+
+1. Get the project detail — confirm project type, status, and assigned team members
+2. List contacts on the project (list_contacts with project_id={project_id}) — check a client contact is linked
+3. List tasks on the project (list_project_tasks with project_id={project_id}) — note any missing intake tasks
+4. List documents on the project (list_documents with project_id={project_id}) — check for required intake docs
+5. List notes on the project (list_project_notes with project_id={project_id}) — surface any intake flags
+
+Output a checklist: ✅ complete, ⚠️ needs attention, ❌ missing. One line per item.
+
+IMPORTANT: if any remediation requires destructive or financial operations (see filevine://security-notes),
+present the specific action and details to the user and obtain explicit confirmation before proceeding.
+Do NOT auto-confirm any operation requiring confirm=True."""
+
+
+@mcp.prompt()
+def billing_workflow(project_id: str) -> str:
+    """Guided billing workflow for a project: review items, finalize invoice, record payment.
+
+    All financial write operations in this server require explicit user confirmation
+    before calling with confirm=True — never auto-confirm.
+    """
+    return f"""Run the billing workflow for project {project_id}. Follow this sequence:
+
+1. List billing items (list_billing_items with project_id={project_id}) — review all unbilled line items
+2. Check billing settings (get_org_billing_settings) — confirm rate schedules and billing codes
+3. List existing invoices (list_invoices with project_id={project_id}) — check for any draft invoices
+
+For each write step below, you MUST:
+  a. Present the full details of the operation to the user
+  b. Wait for explicit user confirmation (yes/no)
+  c. Only then call the tool with confirm=True
+
+Write steps (confirmation required each time):
+- `create_billing_item` — add a new line item (confirm=True required)
+- `finalize_invoice` — lock the invoice for sending (confirm=True required)
+- `approve_invoice` — approve for payment processing (confirm=True required)
+- `create_payment` or `create_payment_and_apply` — record payment receipt (confirm=True required)
+
+Never pass confirm=True without receiving explicit user confirmation for that specific step.
+After each confirmed write, report what was done before proceeding to the next step."""
 
 
 def main():

@@ -9,6 +9,8 @@ import requests
 from pathlib import Path
 from datetime import datetime, timezone
 
+from filevine_mcp import credentials
+
 REGIONS = {
     "us": {
         "api": "https://api.filevineapp.com",
@@ -27,19 +29,15 @@ REGIONS = {
 CONFIG_DIR = Path.home() / ".filevine-mcp"
 API_PREFIX = "/fv-app/v2"
 
-
-def _load_env():
-    env_file = CONFIG_DIR / ".env"
-    if env_file.exists():
-        with open(env_file) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, val = line.split("=", 1)
-                    os.environ.setdefault(key.strip(), val.strip())
-
-
-_load_env()
+# Resolve credentials through the pluggable store (OS keyring -> .env file).
+credentials.load_into_environ(
+    [
+        "FILEVINE_CLIENT_ID",
+        "FILEVINE_CLIENT_SECRET",
+        "FILEVINE_ORG_ID",
+        "FILEVINE_REGION",
+    ]
+)
 
 CLIENT_ID = os.environ.get("FILEVINE_CLIENT_ID", "")
 CLIENT_SECRET = os.environ.get("FILEVINE_CLIENT_SECRET", "")
