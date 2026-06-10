@@ -1,0 +1,295 @@
+tools:
+  - name: get_current_user
+    read_write: read
+  - name: list_users
+    read_write: read
+  - name: get_user
+    read_write: read
+  - name: get_user_tasks
+    read_write: read
+  - name: get_user_appointments
+    read_write: read
+  - name: get_user_recent_projects
+    read_write: read
+  - name: get_user_project_access
+    read_write: read
+  - name: list_projects
+    read_write: read
+  - name: get_project
+    read_write: read
+  - name: create_project
+    read_write: write
+  - name: update_project
+    read_write: write
+  - name: archive_project
+    read_write: write
+  - name: get_project_vitals
+    read_write: read
+  - name: get_project_form
+    read_write: read
+  - name: update_project_form
+    read_write: write
+  - name: get_project_contacts
+    read_write: read
+  - name: add_contact_to_project
+    read_write: write
+  - name: update_project_contact
+    read_write: write
+  - name: remove_contact_from_project
+    read_write: write
+  - name: list_collection_items
+    read_write: read
+  - name: get_collection_item
+    read_write: read
+  - name: create_collection_item
+    read_write: write
+  - name: update_collection_item
+    read_write: write
+  - name: delete_collection_item
+    read_write: write
+  - name: get_project_team
+    read_write: read
+  - name: get_project_team_member
+    read_write: read
+  - name: add_team_member_to_project
+    read_write: write
+  - name: update_project_team_member
+    read_write: write
+  - name: remove_project_team_member
+    read_write: write
+  - name: list_project_appointments
+    read_write: read
+  - name: create_project_appointment
+    read_write: write
+  - name: list_project_notes
+    read_write: read
+  - name: pin_note_to_project
+    read_write: write
+  - name: unpin_note_from_project
+    read_write: write
+  - name: list_project_deadlines
+    read_write: read
+  - name: get_project_deadline
+    read_write: read
+  - name: create_project_deadline
+    read_write: write
+  - name: update_project_deadline
+    read_write: write
+  - name: delete_project_deadline
+    read_write: write
+  - name: list_project_emails
+    read_write: read
+  - name: add_email_to_project
+    read_write: write
+  - name: get_project_invoices
+    read_write: read
+  - name: create_invoice
+    read_write: write
+  - name: update_invoice
+    read_write: write
+  - name: delete_invoice
+    read_write: write
+  - name: finalize_invoice
+    read_write: write
+  - name: get_invoice_pdf
+    read_write: read
+  - name: approve_invoice
+    read_write: write
+  - name: mark_invoice_sent
+    read_write: write
+  - name: list_contacts
+    read_write: read
+  - name: get_contact
+    read_write: read
+  - name: create_contact
+    read_write: write
+  - name: update_contact
+    read_write: write
+  - name: get_contact_addresses
+    read_write: read
+  - name: get_contact_emails
+    read_write: read
+  - name: get_contact_phones
+    read_write: read
+  - name: get_contact_projects
+    read_write: read
+  - name: get_countries
+    read_write: read
+  - name: remove_tag_from_contacts
+    read_write: write
+  - name: list_tasks
+    read_write: read
+  - name: list_project_tasks
+    read_write: read
+  - name: get_task
+    read_write: read
+  - name: create_task
+    read_write: write
+  - name: update_task
+    read_write: write
+  - name: delete_task
+    read_write: write
+  - name: complete_task
+    read_write: write
+  - name: incomplete_task
+    read_write: write
+  - name: assign_task
+    read_write: write
+  - name: pin_task
+    read_write: write
+  - name: unpin_task
+    read_write: write
+  - name: snooze_task
+    read_write: write
+  - name: list_notes
+    read_write: read
+  - name: get_note
+    read_write: read
+  - name: create_note
+    read_write: write
+  - name: update_note
+    read_write: write
+  - name: pin_note
+    read_write: write
+  - name: unpin_note
+    read_write: write
+  - name: list_note_comments
+    read_write: read
+  - name: get_note_comment
+    read_write: read
+  - name: create_note_comment
+    read_write: write
+  - name: update_note_comment
+    read_write: write
+  - name: remove_tag_from_notes
+    read_write: write
+  - name: list_documents
+    read_write: read
+  - name: get_document
+    read_write: read
+  - name: create_document
+    read_write: write
+  - name: update_document
+    read_write: write
+  - name: delete_document
+    read_write: write
+  - name: get_document_download_locator
+    read_write: read
+  - name: add_document_revision
+    read_write: write
+  - name: lock_document
+    read_write: write
+  - name: unlock_document
+    read_write: write
+  - name: move_documents
+    read_write: write
+  - name: copy_documents
+    read_write: write
+  - name: batch_upload_documents
+    read_write: write
+  - name: confirm_batch_upload
+    read_write: write
+  - name: batch_download_documents
+    read_write: read
+  - name: search_documents
+    read_write: read
+  - name: add_document_to_project
+    read_write: write
+  - name: remove_tag_from_documents
+    read_write: write
+  - name: list_recently_opened_documents
+    read_write: read
+  - name: list_folders
+    read_write: read
+  - name: get_folder
+    read_write: read
+  - name: create_folder
+    read_write: write
+  - name: update_folder
+    read_write: write
+  - name: delete_folder
+    read_write: write
+  - name: get_org_billing_codes
+    read_write: read
+  - name: get_org_billing_settings
+    read_write: read
+  - name: get_project_billing_vitals
+    read_write: read
+  - name: get_project_billing_settings
+    read_write: read
+  - name: get_project_billing_codes
+    read_write: read
+  - name: get_project_transactions
+    read_write: read
+  - name: get_project_funds
+    read_write: read
+  - name: get_project_fund_transactions
+    read_write: read
+  - name: get_billing_item
+    read_write: read
+  - name: create_billing_item
+    read_write: write
+  - name: update_billing_item
+    read_write: write
+  - name: delete_billing_item
+    read_write: write
+  - name: create_payment
+    read_write: write
+  - name: create_payment_and_apply
+    read_write: write
+  - name: get_payment_link
+    read_write: read
+  - name: get_org_rate_schedules
+    read_write: read
+  - name: set_project_rate_schedule
+    read_write: write
+  - name: list_webhook_events
+    read_write: read
+  - name: list_webhook_subscriptions
+    read_write: read
+  - name: get_webhook_subscription
+    read_write: read
+  - name: create_webhook_subscription
+    read_write: write
+  - name: update_webhook_subscription
+    read_write: write
+  - name: delete_webhook_subscription
+    read_write: write
+  - name: list_project_types
+    read_write: read
+  - name: get_project_type
+    read_write: read
+  - name: list_document_series
+    read_write: read
+  - name: get_document_series
+    read_write: read
+  - name: list_reports
+    read_write: read
+  - name: get_report
+    read_write: read
+  - name: list_share_links
+    read_write: read
+  - name: get_share_link
+    read_write: read
+  - name: create_share_link
+    read_write: write
+  - name: delete_share_link
+    read_write: write
+  - name: list_mailroom
+    read_write: read
+  - name: create_mailroom_item
+    read_write: write
+  - name: list_teams
+    read_write: read
+  - name: get_team
+    read_write: read
+  - name: create_team
+    read_write: write
+  - name: delete_team
+    read_write: write
+  - name: list_project_teams
+    read_write: read
+  - name: list_classifications
+    read_write: read
+  - name: create_hashtag
+    read_write: write

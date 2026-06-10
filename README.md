@@ -63,6 +63,29 @@ filevine-mcp-verify
 }
 ```
 
+## Credential storage
+
+By default credentials are stored in your operating system's native secret store
+via the cross-platform [`keyring`](https://github.com/jaraco/keyring) library:
+
+| OS      | Backend                                  |
+| ------- | ---------------------------------------- |
+| macOS   | Keychain                                 |
+| Windows | Credential Manager                       |
+| Linux   | Secret Service (GNOME Keyring / KWallet) |
+
+Secrets are saved under the service name `filevine-mcp`. Nothing is written to
+disk in clear text.
+
+**File fallback.** On a host with no keyring backend (e.g. a headless Linux box
+without Secret Service), or if you set `FILEVINE_MCP_USE_KEYRING=0`, credentials
+fall back to a `~/.filevine-mcp/.env` file with `0600` permissions.
+
+**Read order.** Credentials resolve in the order OS keyring → process environment
+→ `.env` file. So a rotated secret in the keyring always wins, and a
+`FILEVINE_CLIENT_ID` / `FILEVINE_CLIENT_SECRET` exported in your shell overrides
+the file fallback without touching the keyring.
+
 ## Authentication Notes
 
 Filevine uses OAuth 2.0 **client credentials** flow — no browser authorization required. Tokens are fetched automatically and refreshed when they expire. Three regions are supported with separate API and identity hosts:
