@@ -344,7 +344,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "keyring", specifier = ">=24.3.1" },
+    { name = "keyring", specifier = ">=25.7.0" },
     { name = "mcp", specifier = ">=1.0.0" },
     { name = "requests", specifier = ">=2.31.0" },
 ]
