@@ -12,7 +12,7 @@ license = { text = "MIT" }
 keywords = ["filevine", "mcp", "legal", "law", "claude", "case-management"]
 dependencies = [
     "mcp>=1.27.2",
-    "requests>=2.31.0",
+    "requests>=2.34.2",
     "keyring>=25.7.0",
 ]
 
