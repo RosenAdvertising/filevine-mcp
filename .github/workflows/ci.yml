@@ -28,7 +28,7 @@ jobs:
       js: ${{ steps.check.outputs.js }}
       rust: ${{ steps.check.outputs.rust }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - id: check
         run: |
           if [ -f pyproject.toml ] || [ -f requirements.txt ]; then
@@ -50,7 +50,7 @@ jobs:
   pre-commit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14.5"
@@ -76,7 +76,7 @@ jobs:
     needs: detect
     if: needs.detect.outputs.python == 'true'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
       - name: Set up Python
         run: uv python install 3.12
@@ -107,7 +107,7 @@ jobs:
     needs: detect
     if: needs.detect.outputs.js == 'true'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version: "24.16.0"
@@ -132,7 +132,7 @@ jobs:
     needs: detect
     if: needs.detect.outputs.rust == 'true'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --all-features
       - run: cargo clippy --all-targets -- -D warnings
@@ -154,7 +154,7 @@ jobs:
     # positives. Docs: https://google.github.io/osv-scanner/github-action/
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: google/osv-scanner-action/osv-scanner-action@v2.3.8
         with:
           scan-args: |-
