@@ -21,11 +21,11 @@ CONFIG_DIR = Path.home() / ".filevine-mcp"
 REGIONS = {
     "us": {
         "api": "https://api.filevineapp.com",
-        "identity": "https://identity.filevineapp.com",
+        "identity": "https://identity.filevine.com",
     },
     "ca": {
         "api": "https://api.filevineapp.ca",
-        "identity": "https://identity.filevineapp.ca",
+        "identity": "https://identity.filevine.ca",
     },
     "cjis": {
         "api": "https://api.filevinegov.com",
@@ -45,15 +45,19 @@ def prompt(label, default="", secret=False):
     return val or default
 
 
-def fetch_token(client_id, client_secret, identity_base):
+def fetch_token(client_id, client_secret, identity_base, pat):
     token_url = f"{identity_base}/connect/token"
     resp = requests.post(
         token_url,
         data={
-            "grant_type": "client_credentials",
+            "grant_type": "personal_access_token",
+            "token": pat,
             "client_id": client_id,
             "client_secret": client_secret,
-            "scope": "openid",
+            "scope": (
+                "fv.api.gateway.access tenant filevine.v2.api.* "
+                "openid email fv.auth.tenant.read filevine.v2.webhooks"
+            ),
         },
     )
     if resp.status_code == 200:
@@ -64,7 +68,7 @@ def fetch_token(client_id, client_secret, identity_base):
 def main():
     print("Filevine MCP Setup")
     print("==================")
-    print("Filevine uses OAuth 2.0 client credentials — no browser required.")
+    print("Filevine uses Personal Access Token (PAT) authentication.")
     print()
 
     print("Region options: us, ca, cjis")
@@ -78,12 +82,17 @@ def main():
 
     client_id = prompt("Client ID")
     client_secret = prompt("Client Secret", secret=True)
+    while True:
+        pat = prompt("Personal Access Token (PAT)", secret=True)
+        if pat:
+            break
+        print("PAT cannot be empty. Please enter a valid token.")
     org_id = prompt("Org ID (optional, press Enter to skip)", default="")
 
     print()
     print("Testing credentials...")
     try:
-        tokens = fetch_token(client_id, client_secret, identity_base)
+        tokens = fetch_token(client_id, client_secret, identity_base, pat)
         expires_in = tokens.get("expires_in", 3600)
         tokens["expires_at"] = time.time() + expires_in
 
@@ -92,10 +101,11 @@ def main():
         print(f"✗ Failed: {e}")
         sys.exit(1)
 
-    backend = credentials.set_secret("FILEVINE_CLIENT_ID", client_id)
+    credentials.set_secret("FILEVINE_CLIENT_ID", client_id)
     credentials.set_secret("FILEVINE_CLIENT_SECRET", client_secret)
     credentials.set_secret("FILEVINE_ORG_ID", org_id)
     credentials.set_secret("FILEVINE_REGION", region)
+    credentials.set_secret("FILEVINE_PAT", pat)
 
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -104,12 +114,9 @@ def main():
     os.chmod(token_file, 0o600)
 
     print()
-    if backend == "keyring":
-        print(
-            f"✓ Credentials saved to the OS keyring ({credentials.storage_backend()})."
-        )
-    else:
-        print(f"✓ Credentials saved to {credentials.ENV_FILE} (0600).")
+    print(
+        f"✓ Credentials saved ({credentials.storage_backend()})."
+    )
     print(f"✓ Tokens saved to {token_file}")
     print()
     print("Add to your Claude Desktop config:")

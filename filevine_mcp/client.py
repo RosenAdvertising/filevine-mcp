@@ -14,11 +14,11 @@ from filevine_mcp import credentials
 REGIONS = {
     "us": {
         "api": "https://api.filevineapp.com",
-        "identity": "https://identity.filevineapp.com",
+        "identity": "https://identity.filevine.com",
     },
     "ca": {
         "api": "https://api.filevineapp.ca",
-        "identity": "https://identity.filevineapp.ca",
+        "identity": "https://identity.filevine.ca",
     },
     "cjis": {
         "api": "https://api.filevinegov.com",
@@ -36,6 +36,7 @@ credentials.load_into_environ(
         "FILEVINE_CLIENT_SECRET",
         "FILEVINE_ORG_ID",
         "FILEVINE_REGION",
+        "FILEVINE_PAT",
     ]
 )
 
@@ -43,6 +44,7 @@ CLIENT_ID = os.environ.get("FILEVINE_CLIENT_ID", "")
 CLIENT_SECRET = os.environ.get("FILEVINE_CLIENT_SECRET", "")
 ORG_ID = os.environ.get("FILEVINE_ORG_ID", "")
 REGION = os.environ.get("FILEVINE_REGION", "us").lower()
+FILEVINE_PAT = os.environ.get("FILEVINE_PAT", "")
 
 _region_cfg = REGIONS.get(REGION, REGIONS["us"])
 BASE_URL = _region_cfg["api"]
@@ -98,13 +100,21 @@ class TokenManager:
             raise RuntimeError(
                 "FILEVINE_CLIENT_ID and FILEVINE_CLIENT_SECRET are required. Run: filevine-mcp-setup"
             )
+        if not FILEVINE_PAT:
+            raise RuntimeError(
+                "FILEVINE_PAT is required. Run: filevine-mcp-setup"
+            )
         resp = requests.post(
             TOKEN_URL,
             data={
-                "grant_type": "client_credentials",
+                "grant_type": "personal_access_token",
+                "token": FILEVINE_PAT,
                 "client_id": CLIENT_ID,
                 "client_secret": CLIENT_SECRET,
-                "scope": "openid",
+                "scope": (
+                    "fv.api.gateway.access tenant filevine.v2.api.* "
+                    "openid email fv.auth.tenant.read filevine.v2.webhooks"
+                ),
             },
         )
         if resp.status_code == 200:
