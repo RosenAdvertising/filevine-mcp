@@ -59,6 +59,7 @@ def fetch_token(client_id, client_secret, identity_base, pat):
                 "openid email fv.auth.tenant.read filevine.v2.webhooks"
             ),
         },
+        timeout=5
     )
     if resp.status_code == 200:
         return resp.json()
