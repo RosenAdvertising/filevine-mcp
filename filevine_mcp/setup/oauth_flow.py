@@ -101,7 +101,7 @@ def main():
         print(f"✗ Failed: {e}")
         sys.exit(1)
 
-    credentials.set_secret("FILEVINE_CLIENT_ID", client_id)
+    backend = credentials.set_secret("FILEVINE_CLIENT_ID", client_id)
     credentials.set_secret("FILEVINE_CLIENT_SECRET", client_secret)
     credentials.set_secret("FILEVINE_ORG_ID", org_id)
     credentials.set_secret("FILEVINE_REGION", region)
@@ -114,9 +114,12 @@ def main():
     os.chmod(token_file, 0o600)
 
     print()
-    print(
-        f"✓ Credentials saved ({credentials.storage_backend()})."
-    )
+    if backend == "keyring":
+        print(
+            f"✓ Credentials saved to the OS keyring ({credentials.storage_backend()})."
+        )
+    else:
+        print(f"✓ Credentials saved to {credentials.ENV_FILE} (0600).")
     print(f"✓ Tokens saved to {token_file}")
     print()
     print("Add to your Claude Desktop config:")
