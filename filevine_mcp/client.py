@@ -116,6 +116,7 @@ class TokenManager:
                     "openid email fv.auth.tenant.read filevine.v2.webhooks"
                 ),
             },
+            timeout=5
         )
         if resp.status_code == 200:
             tokens = _json_response(resp)
