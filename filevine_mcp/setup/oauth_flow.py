@@ -102,11 +102,15 @@ def main():
         print(f"✗ Failed: {e}")
         sys.exit(1)
 
-    backend = credentials.set_secret("FILEVINE_CLIENT_ID", client_id)
-    credentials.set_secret("FILEVINE_CLIENT_SECRET", client_secret)
-    credentials.set_secret("FILEVINE_ORG_ID", org_id)
-    credentials.set_secret("FILEVINE_REGION", region)
-    credentials.set_secret("FILEVINE_PAT", pat)
+    backends = {
+        "FILEVINE_CLIENT_ID": credentials.set_secret("FILEVINE_CLIENT_ID", client_id),
+        "FILEVINE_CLIENT_SECRET": credentials.set_secret(
+            "FILEVINE_CLIENT_SECRET", client_secret
+        ),
+        "FILEVINE_ORG_ID": credentials.set_secret("FILEVINE_ORG_ID", org_id),
+        "FILEVINE_REGION": credentials.set_secret("FILEVINE_REGION", region),
+        "FILEVINE_PAT": credentials.set_secret("FILEVINE_PAT", pat),
+    }
 
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -115,12 +119,22 @@ def main():
     os.chmod(token_file, 0o600)
 
     print()
-    if backend == "keyring":
+    backend_set = set(backends.values())
+    if backend_set == {"keyring"}:
         print(
             f"✓ Credentials saved to the OS keyring ({credentials.storage_backend()})."
         )
-    else:
+    elif backend_set == {"file"}:
         print(f"✓ Credentials saved to {credentials.ENV_FILE} (0600).")
+    else:
+        file_keys = ", ".join(
+            key for key, saved in backends.items() if saved == "file"
+        )
+        print(
+            "✓ Credentials saved with mixed storage — "
+            f"these fell back to {credentials.ENV_FILE} (0600): {file_keys}; "
+            f"the rest are in the OS keyring ({credentials.storage_backend()})."
+        )
     print(f"✓ Tokens saved to {token_file}")
     print()
     print("Add to your Claude Desktop config:")
