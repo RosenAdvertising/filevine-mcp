@@ -101,9 +101,7 @@ class TokenManager:
                 "FILEVINE_CLIENT_ID and FILEVINE_CLIENT_SECRET are required. Run: filevine-mcp-setup"
             )
         if not FILEVINE_PAT:
-            raise RuntimeError(
-                "FILEVINE_PAT is required. Run: filevine-mcp-setup"
-            )
+            raise RuntimeError("FILEVINE_PAT is required. Run: filevine-mcp-setup")
         resp = requests.post(
             TOKEN_URL,
             data={
@@ -116,7 +114,7 @@ class TokenManager:
                     "openid email fv.auth.tenant.read filevine.v2.webhooks"
                 ),
             },
-            timeout=5
+            timeout=5,
         )
         if resp.status_code == 200:
             tokens = _json_response(resp)

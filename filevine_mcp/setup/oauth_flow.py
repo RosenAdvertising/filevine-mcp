@@ -59,7 +59,7 @@ def fetch_token(client_id, client_secret, identity_base, pat):
                 "openid email fv.auth.tenant.read filevine.v2.webhooks"
             ),
         },
-        timeout=5
+        timeout=5,
     )
     if resp.status_code == 200:
         return resp.json()
@@ -127,9 +127,7 @@ def main():
     elif backend_set == {"file"}:
         print(f"✓ Credentials saved to {credentials.ENV_FILE} (0600).")
     else:
-        file_keys = ", ".join(
-            key for key, saved in backends.items() if saved == "file"
-        )
+        file_keys = ", ".join(key for key, saved in backends.items() if saved == "file")
         print(
             "✓ Credentials saved with mixed storage — "
             f"these fell back to {credentials.ENV_FILE} (0600): {file_keys}; "
