@@ -338,7 +338,7 @@ wheels = [
 
 [[package]]
 name = "filevine-mcp"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "keyring" },
@@ -349,7 +349,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "keyring", specifier = ">=25.7.0" },
-    { name = "mcp", specifier = ">=1.27.2" },
+    { name = "mcp", specifier = ">=1.27.2,<2" },
     { name = "requests", specifier = ">=2.34.2" },
 ]
 
