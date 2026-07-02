@@ -1,4 +1,4 @@
-"""Cowork standard structured logging configuration.
+"""Structured logging configuration.
 
 Drop into any service-style project. Provides JSON logs to stderr with a
 consistent schema across the fleet.

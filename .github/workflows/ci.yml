@@ -1,4 +1,4 @@
-# Cowork standard CI workflow (language-aware)
+# Standard CI workflow (language-aware)
 # Propagated to <repo>/.github/workflows/ci.yml
 #
 # Runs:

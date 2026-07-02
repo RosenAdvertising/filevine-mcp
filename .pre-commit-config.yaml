@@ -1,11 +1,10 @@
-# Cowork polyglot pre-commit config
-# Source of truth: ~/Cowork/Cowork-Assets/dev-foundations-templates/pre-commit-config.yaml
+# Polyglot pre-commit config
 # Propagated by: propagate.py
 # Updated: 2026-05-22 (v2 — polyglot rebuild after fleet survey)
 #
 # All hooks gate on file types — a Python-only repo won't run JS hooks because
 # no JS files are staged, and vice versa. This is the single root config for
-# every Cowork coding repo.
+# every coding repo.
 
 default_install_hook_types: [pre-commit, commit-msg]
 fail_fast: false
