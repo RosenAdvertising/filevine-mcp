@@ -1,6 +1,12 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "github>RosenAdvertising/fleet-ci:renovate-config"
+  "extends": ["github>RosenAdvertising/fleet-ci:renovate-config"],
+  "packageRules": [
+    {
+      "description": "Keep broad Python support; do not bump the requires-python floor (public MCP).",
+      "matchManagers": ["pep621"],
+      "matchDepNames": ["python"],
+      "enabled": false
+    }
   ]
 }
