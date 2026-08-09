@@ -56,7 +56,7 @@ jobs:
           python-version: "3.14.7"
       - uses: actions/setup-node@v7
         with:
-          node-version: "24.18.0"
+          node-version: "24.19.0"
       # JS/TS repos: install node deps so the eslint pre-commit hook
       # (`npx --no-install eslint`) can resolve a locally-installed eslint.
       # Gated on package.json so Python/Rust-only repos skip it. npm ci is
@@ -110,7 +110,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: "24.18.0"
+          node-version: "24.19.0"
           cache: "npm"
       - name: Install deps
         run: |
@@ -155,7 +155,7 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v7
-      - uses: google/osv-scanner-action/osv-scanner-action@v2.3.8
+      - uses: google/osv-scanner-action/osv-scanner-action@v2.5.0
         with:
           scan-args: |-
             --recursive
