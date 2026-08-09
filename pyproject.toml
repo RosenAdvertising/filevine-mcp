@@ -11,9 +11,14 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 keywords = ["filevine", "mcp", "legal", "law", "claude", "case-management"]
 dependencies = [
-    "mcp>=1.28.1,<2",
+    "mcp==2.0.0",
     "requests>=2.34.2",
     "keyring>=25.7.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4,<10",
 ]
 
 [project.scripts]
@@ -34,3 +39,9 @@ exclude = ["**/node_modules", "**/__pycache__", ".venv", "venv", "dist", "build"
 typeCheckingMode = "basic"
 reportMissingImports = "warning"
 reportMissingTypeStubs = false
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
