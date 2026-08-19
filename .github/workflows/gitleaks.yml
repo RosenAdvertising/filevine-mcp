@@ -1,10 +1,17 @@
 name: gitleaks
-on: [push, pull_request]
+on:
+  # Branch pushes only. Pushes to main/master and every pull request are
+  # already covered by the fleet CI `secrets` job, which runs the identical
+  # gitleaks 8.21.2 command; scanning them here too would just duplicate it.
+  # This workflow keeps the coverage the fleet caller does not have: a push
+  # to a branch that has no pull request open yet.
+  push:
+    branches-ignore: [main, master]
 jobs:
   secrets:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: gitleaks (secret scan)
