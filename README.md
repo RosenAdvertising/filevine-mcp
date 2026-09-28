@@ -25,6 +25,7 @@ MCP server for [Filevine](https://filevine.com) — full API coverage for legal 
 ## Requirements
 
 - Python 3.10+
+- Python MCP SDK >=2.2,<3 (supports the MCP 2026-07-28 protocol)
 - Claude Desktop (or any MCP-compatible client)
 - Filevine API credentials (Client ID, Client Secret)
 - Filevine region: `us`, `ca`, or `cjis`
