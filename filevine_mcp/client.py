@@ -2,14 +2,18 @@
 """Filevine API client. OAuth 2.0 client credentials, region-specific host, Bearer auth."""
 
 import json
+import logging
 import os
 import sys
 import time
-import requests
-from pathlib import Path
 from datetime import datetime, timezone
+from pathlib import Path
+
+import requests
 
 from filevine_mcp import credentials
+
+logger = logging.getLogger(__name__)
 
 REGIONS = {
     "us": {
@@ -64,9 +68,30 @@ def _json_response(resp):
         return resp.json()
     except ValueError:
         raise RuntimeError(
-            f"Filevine API returned non-JSON response ({resp.status_code}): "
-            f"{resp.text[:200]}"
-        )
+            f"Filevine API returned a non-JSON response ({resp.status_code})"
+        ) from None
+
+
+def _cap_collection(payload, limit):
+    """Cap known Filevine list envelopes without mutating the caller's object."""
+    if isinstance(payload, list):
+        return payload[:limit]
+    if not isinstance(payload, dict):
+        return payload
+
+    for key in ("Items", "items", "ShareLinks", "shareLinks", "data", "Data"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            capped = dict(payload)
+            capped[key] = value[:limit]
+            return capped
+        if isinstance(value, dict):
+            nested = _cap_collection(value, limit)
+            if nested is not value:
+                capped = dict(payload)
+                capped[key] = nested
+                return capped
+    return payload
 
 
 class TokenManager:
@@ -97,10 +122,18 @@ class TokenManager:
 
     def fetch(self):
         if not CLIENT_ID or not CLIENT_SECRET:
+            logger.warning(
+                "Filevine request rejected",
+                extra={"event": "request_rejected", "reason": "missing_client_credentials"},
+            )
             raise RuntimeError(
                 "FILEVINE_CLIENT_ID and FILEVINE_CLIENT_SECRET are required. Run: filevine-mcp-setup"
             )
         if not FILEVINE_PAT:
+            logger.warning(
+                "Filevine request rejected",
+                extra={"event": "request_rejected", "reason": "missing_pat"},
+            )
             raise RuntimeError("FILEVINE_PAT is required. Run: filevine-mcp-setup")
         resp = requests.post(
             TOKEN_URL,
@@ -123,7 +156,7 @@ class TokenManager:
             tokens["fetched_at"] = datetime.now(timezone.utc).isoformat()
             self.save(tokens)
             return tokens
-        raise RuntimeError(f"Token fetch failed ({resp.status_code}): {resp.text}")
+        raise RuntimeError(f"Token fetch failed ({resp.status_code})")
 
     def get_valid_token(self):
         if not self.access_token or self.is_expired():
@@ -134,6 +167,10 @@ class TokenManager:
 class FileVineClient:
     def __init__(self):
         if not ORG_ID:
+            logger.warning(
+                "Filevine request rejected",
+                extra={"event": "request_rejected", "reason": "missing_org_id"},
+            )
             raise ValueError("FILEVINE_ORG_ID is required. Run filevine-mcp-setup.")
         self.tm = TokenManager()
         self.session = requests.Session()
@@ -149,7 +186,15 @@ class FileVineClient:
         }
         self.session.headers.update(headers)
 
-    def _request(self, method, path, params=None, json_body=None, _rate_retries=0):
+    def _request(
+        self,
+        method,
+        path,
+        params=None,
+        json_body=None,
+        _rate_retries=0,
+        result_limit=None,
+    ):
         if self.tm.is_expired():
             self._refresh_headers()
 
@@ -171,23 +216,29 @@ class FileVineClient:
                 params=params,
                 json_body=json_body,
                 _rate_retries=_rate_retries + 1,
+                result_limit=result_limit,
             )
 
         if resp.status_code == 204 or not resp.content:
             return {"success": True}
 
         if not resp.ok:
-            raise RuntimeError(
-                f"Filevine API error {resp.status_code}: {resp.text[:400]}"
-            )
+            raise RuntimeError(f"Filevine API error {resp.status_code}")
 
         try:
-            return resp.json()
+            payload = resp.json()
         except ValueError:
-            return {"raw": resp.text}
+            payload = {"raw": "non-JSON response"}
+        return (
+            _cap_collection(payload, result_limit)
+            if result_limit is not None
+            else payload
+        )
 
-    def get(self, path, params=None):
-        return self._request("GET", path, params=params)
+    def get(self, path, params=None, *, result_limit=None):
+        return self._request(
+            "GET", path, params=params, result_limit=result_limit
+        )
 
     def post(self, path, body=None):
         return self._request("POST", path, json_body=body)
@@ -206,30 +257,59 @@ class FileVineClient:
     def get_me(self):
         return self.get("Users/Me")
 
-    def list_users(self):
-        return self.get("Users")
+    def list_users(self, limit=50, offset=0):
+        return self.get(
+            "Users",
+            {"limit": limit, "offset": offset},
+            result_limit=limit,
+        )
 
     def get_user(self, user_id):
         return self.get(f"users/{user_id}")
 
-    def get_user_tasks(self, user_id, page=1, page_size=50):
+    def get_user_tasks(self, user_id, limit=50, offset=0):
         return self.get(
-            f"users/{user_id}/tasks", {"requestedPage": page, "pageSize": page_size}
+            f"users/{user_id}/tasks",
+            {"limit": limit, "offset": offset},
+            result_limit=limit,
         )
 
-    def get_user_appointments(self, user_id):
-        return self.get(f"users/{user_id}/appointments")
+    def get_user_appointments(self, user_id, limit=50, offset=0):
+        return self.get(
+            f"users/{user_id}/appointments",
+            {"limit": limit, "offset": offset},
+            result_limit=limit,
+        )
 
     def get_user_recent_projects(self, user_id):
         return self.get(f"users/{user_id}/recentprojects")
 
-    def get_user_project_access(self, user_id):
-        return self.get(f"users/{user_id}/projects/access")
+    def get_user_project_access(self, user_id, limit=50, offset=0):
+        return self.get(
+            f"users/{user_id}/projects/access",
+            {"limit": limit, "offset": offset},
+            result_limit=limit,
+        )
 
     # ── Projects (Matters) ────────────────────────────────────────────────────
 
-    def list_projects(self, page=1, page_size=50):
-        return self.get("Projects", {"requestedPage": page, "pageSize": page_size})
+    def list_projects(
+        self,
+        limit=50,
+        offset=0,
+        sort_by="projectId",
+        order_by="desc",
+    ):
+        return self.get(
+            "Projects",
+            {
+                "limit": limit,
+                "offset": offset,
+                "sortBy": sort_by,
+                "orderBy": order_by,
+            },
+            result_limit=limit,
+        )
 
     def get_project(self, project_id):
         return self.get(f"Projects/{project_id}")
@@ -254,8 +334,22 @@ class FileVineClient:
 
     # ── Project Contacts ──────────────────────────────────────────────────────
 
-    def get_project_contacts(self, project_id):
-        return self.get(f"projects/{project_id}/contacts")
+    def get_project_contacts(
+        self,
+        project_id,
+        limit=50,
+        offset=0,
+        sort_by="",
+        order_by="desc",
+    ):
+        params = {"limit": limit, "offset": offset, "orderBy": order_by}
+        if sort_by:
+            params["sortBy"] = sort_by
+        return self.get(
+            f"projects/{project_id}/contacts",
+            params,
+            result_limit=limit,
+        )
 
     def add_contact_to_project(self, project_id, contact_id, **fields):
         body = {"contactId": contact_id, **fields}
@@ -271,10 +365,11 @@ class FileVineClient:
 
     # ── Project Collections (Custom Sections) ─────────────────────────────────
 
-    def list_collection_items(self, project_id, selector, page=1, page_size=50):
+    def list_collection_items(self, project_id, selector, limit=50, offset=0):
         return self.get(
             f"Projects/{project_id}/Collections/{selector}",
-            {"requestedPage": page, "pageSize": page_size},
+            {"limit": limit, "offset": offset},
+            result_limit=limit,
         )
 
     def get_collection_item(self, project_id, selector, unique_id):
@@ -293,8 +388,22 @@ class FileVineClient:
 
     # ── Project Teams ─────────────────────────────────────────────────────────
 
-    def get_project_team(self, project_id):
-        return self.get(f"projects/{project_id}/team")
+    def get_project_team(
+        self,
+        project_id,
+        limit=50,
+        offset=0,
+        sort_by="",
+        order_by="desc",
+    ):
+        params = {"limit": limit, "offset": offset, "orderBy": order_by}
+        if sort_by:
+            params["sortBy"] = sort_by
+        return self.get(
+            f"projects/{project_id}/team",
+            params,
+            result_limit=limit,
+        )
 
     def get_project_team_member(self, project_id, user_id):
         return self.get(f"projects/{project_id}/team/{user_id}")
@@ -310,16 +419,24 @@ class FileVineClient:
 
     # ── Project Appointments ──────────────────────────────────────────────────
 
-    def list_project_appointments(self, project_id):
-        return self.get(f"Projects/{project_id}/Appointments")
+    def list_project_appointments(self, project_id, limit=50, offset=0):
+        return self.get(
+            f"Projects/{project_id}/Appointments",
+            {"limit": limit, "offset": offset},
+            result_limit=limit,
+        )
 
     def create_project_appointment(self, project_id, **fields):
         return self.post(f"Projects/{project_id}/Appointments", fields)
 
     # ── Project Notes ─────────────────────────────────────────────────────────
 
-    def list_project_notes(self, project_id):
-        return self.get(f"Projects/{project_id}/Notes")
+    def list_project_notes(self, project_id, limit=50, offset=0):
+        return self.get(
+            f"Projects/{project_id}/Notes",
+            {"limit": limit, "offset": offset},
+            result_limit=limit,
+        )
 
     def pin_note_to_project(self, project_id, note_id):
         return self.post(f"projects/{project_id}/notes/{note_id}/pin")
@@ -329,8 +446,12 @@ class FileVineClient:
 
     # ── Project Deadlines ─────────────────────────────────────────────────────
 
-    def list_project_deadlines(self, project_id):
-        return self.get(f"projects/{project_id}/deadlines")
+    def list_project_deadlines(self, project_id, limit=50, offset=0):
+        return self.get(
+            f"projects/{project_id}/deadlines",
+            {"limit": limit, "offset": offset},
+            result_limit=limit,
+        )
 
     def get_project_deadline(self, project_id, deadline_id):
         return self.get(f"projects/{project_id}/deadlines/{deadline_id}")
@@ -346,8 +467,12 @@ class FileVineClient:
 
     # ── Project Emails ────────────────────────────────────────────────────────
 
-    def list_project_emails(self, project_id):
-        return self.get(f"projects/{project_id}/emails")
+    def list_project_emails(self, project_id, limit=50, offset=0):
+        return self.get(
+            f"projects/{project_id}/emails",
+            {"limit": limit, "offset": offset},
+            result_limit=limit,
+        )
 
     def add_email_to_project(self, project_id, **fields):
         return self.post(f"projects/{project_id}/emails", fields)
@@ -366,8 +491,12 @@ class FileVineClient:
     def finalize_invoice(self, project_id, invoice_id):
         return self.post(f"projects/{project_id}/invoices/{invoice_id}/finalize")
 
-    def get_project_invoices(self, project_id):
-        return self.get(f"billing/projects/{project_id}/invoices")
+    def get_project_invoices(self, project_id, limit=50, offset=0):
+        return self.get(
+            f"billing/projects/{project_id}/invoices",
+            {"limit": limit, "offset": offset},
+            result_limit=limit,
+        )
 
     def get_invoice_pdf(self, invoice_id):
         return self.get(f"billing/invoices/{invoice_id}/pdf")
@@ -380,8 +509,12 @@ class FileVineClient:
 
     # ── Contacts ──────────────────────────────────────────────────────────────
 
-    def list_contacts(self, page=1, page_size=50):
-        return self.get("Contacts", {"requestedPage": page, "pageSize": page_size})
+    def list_contacts(self, limit=50, offset=0):
+        return self.get(
+            "Contacts",
+            {"limit": limit, "offset": offset},
+            result_limit=limit,
+        )
 
     def get_contact(self, contact_id):
         return self.get(f"Contacts/{contact_id}")
@@ -392,17 +525,33 @@ class FileVineClient:
     def update_contact(self, contact_id, **fields):
         return self.patch(f"Contacts/{contact_id}", fields)
 
-    def get_contact_addresses(self, contact_id):
-        return self.get(f"Contacts/{contact_id}/addresses")
+    def get_contact_addresses(self, contact_id, limit=50, offset=0):
+        return self.get(
+            f"Contacts/{contact_id}/addresses",
+            {"limit": limit, "offset": offset},
+            result_limit=limit,
+        )
 
-    def get_contact_emails(self, contact_id):
-        return self.get(f"Contacts/{contact_id}/emailaddresses")
+    def get_contact_emails(self, contact_id, limit=50, offset=0):
+        return self.get(
+            f"Contacts/{contact_id}/emailaddresses",
+            {"limit": limit, "offset": offset},
+            result_limit=limit,
+        )
 
-    def get_contact_phones(self, contact_id):
-        return self.get(f"Contacts/{contact_id}/phones")
+    def get_contact_phones(self, contact_id, limit=50, offset=0):
+        return self.get(
+            f"Contacts/{contact_id}/phones",
+            {"limit": limit, "offset": offset},
+            result_limit=limit,
+        )
 
-    def get_contact_projects(self, contact_id):
-        return self.get(f"Contacts/{contact_id}/projects")
+    def get_contact_projects(self, contact_id, limit=50, offset=0):
+        return self.get(
+            f"Contacts/{contact_id}/projects",
+            {"limit": limit, "offset": offset},
+            result_limit=limit,
+        )
 
     def get_countries(self):
         return self.get("Contacts/Countries")
@@ -412,11 +561,17 @@ class FileVineClient:
 
     # ── Tasks ─────────────────────────────────────────────────────────────────
 
-    def list_tasks(self, page=1, page_size=50):
-        return self.get("tasks", {"requestedPage": page, "pageSize": page_size})
+    def list_tasks(self, limit=50, offset=0):
+        return self.get(
+            "tasks", {"offset": offset}, result_limit=limit
+        )
 
-    def list_project_tasks(self, project_id):
-        return self.get(f"projects/{project_id}/tasks")
+    def list_project_tasks(self, project_id, limit=50, offset=0):
+        return self.get(
+            f"projects/{project_id}/tasks",
+            {"limit": limit, "offset": offset},
+            result_limit=limit,
+        )
 
     def get_task(self, task_id):
         return self.get(f"tasks/{task_id}")
@@ -450,8 +605,8 @@ class FileVineClient:
 
     # ── Notes ─────────────────────────────────────────────────────────────────
 
-    def list_notes(self, page=1, page_size=50):
-        return self.get("Notes", {"requestedPage": page, "pageSize": page_size})
+    def list_notes(self, limit=50, offset=0):
+        return self.get("Notes", {"offset": offset}, result_limit=limit)
 
     def get_note(self, note_id):
         return self.get(f"Notes/{note_id}")
@@ -468,8 +623,22 @@ class FileVineClient:
     def unpin_note(self, note_id):
         return self.post(f"Notes/{note_id}/unpin")
 
-    def list_note_comments(self, note_id):
-        return self.get(f"Notes/{note_id}/Comments")
+    def list_note_comments(
+        self,
+        note_id,
+        limit=50,
+        offset=0,
+        order_by_descending=True,
+    ):
+        return self.get(
+            f"Notes/{note_id}/Comments",
+            {
+                "orderByDescending": order_by_descending,
+                "limit": limit,
+                "offset": offset,
+            },
+            result_limit=limit,
+        )
 
     def get_note_comment(self, note_id, comment_id):
         return self.get(f"Notes/{note_id}/Comments/{comment_id}")
@@ -485,8 +654,12 @@ class FileVineClient:
 
     # ── Documents ─────────────────────────────────────────────────────────────
 
-    def list_documents(self, page=1, page_size=50):
-        return self.get("Documents", {"requestedPage": page, "pageSize": page_size})
+    def list_documents(self, limit=50, offset=0):
+        return self.get(
+            "Documents",
+            {"limit": limit, "offset": offset},
+            result_limit=limit,
+        )
 
     def get_document(self, document_id):
         return self.get(f"Documents/{document_id}")
@@ -531,10 +704,16 @@ class FileVineClient:
     def batch_download_documents(self, document_ids: list):
         return self.post("Documents/batch/download", {"documentIds": document_ids})
 
-    def search_documents(self, query, page=1, page_size=50):
+    def search_documents(self, query, project_id, limit=50, offset=0):
         return self.get(
             "DocumentSearch",
-            {"query": query, "requestedPage": page, "pageSize": page_size},
+            {
+                "searchTerm": query,
+                "projectId": project_id,
+                "limit": limit,
+                "offset": offset,
+            },
+            result_limit=limit,
         )
 
     def add_document_to_project(self, project_id, document_id):
@@ -545,8 +724,23 @@ class FileVineClient:
 
     # ── Folders ───────────────────────────────────────────────────────────────
 
-    def list_folders(self, page=1, page_size=50):
-        return self.get("Folders", {"requestedPage": page, "pageSize": page_size})
+    def list_folders(
+        self,
+        limit=50,
+        offset=0,
+        ascending_order=False,
+        sort_by_name=False,
+    ):
+        return self.get(
+            "Folders",
+            {
+                "ascendingOrder": ascending_order,
+                "sortByName": sort_by_name,
+                "limit": limit,
+                "offset": offset,
+            },
+            result_limit=limit,
+        )
 
     def get_folder(self, folder_id):
         return self.get(f"Folders/{folder_id}")
@@ -577,14 +771,22 @@ class FileVineClient:
     def get_project_billing_codes(self, project_id):
         return self.get(f"Billing/{project_id}/AvailableBillingCodes")
 
-    def get_project_transactions(self, project_id):
-        return self.get(f"Billing/projects/{project_id}/transactions")
+    def get_project_transactions(self, project_id, limit=50, offset=0):
+        return self.get(
+            f"Billing/projects/{project_id}/transactions",
+            {"limit": limit, "offset": offset},
+            result_limit=limit,
+        )
 
     def get_project_funds(self, project_id):
         return self.get(f"Billing/projects/{project_id}/funds")
 
-    def get_project_fund_transactions(self, project_id):
-        return self.get(f"Billing/projects/{project_id}/fundslist")
+    def get_project_fund_transactions(self, project_id, limit=50, offset=0):
+        return self.get(
+            f"Billing/projects/{project_id}/fundslist",
+            {"limit": limit, "offset": offset},
+            result_limit=limit,
+        )
 
     def create_billing_item(self, project_id, **fields):
         return self.post(f"projects/{project_id}/BillingItem", fields)
@@ -640,32 +842,47 @@ class FileVineClient:
 
     # ── Project Types ─────────────────────────────────────────────────────────
 
-    def list_project_types(self):
-        return self.get("ProjectTypes")
+    def list_project_types(self, limit=50, offset=0):
+        return self.get(
+            "ProjectTypes",
+            {"limit": limit, "offset": offset},
+            result_limit=limit,
+        )
 
     def get_project_type(self, project_type_id):
         return self.get(f"ProjectTypes/{project_type_id}")
 
     # ── Document Series ───────────────────────────────────────────────────────
 
-    def list_document_series(self):
-        return self.get("DocumentSeries")
+    def list_document_series(self, limit=50, last_id=0):
+        return self.get(
+            "DocumentSeries",
+            {"limit": limit, "lastId": last_id},
+            result_limit=limit,
+        )
 
     def get_document_series(self, series_id):
         return self.get(f"DocumentSeries/{series_id}")
 
     # ── Reports ───────────────────────────────────────────────────────────────
 
-    def list_reports(self):
-        return self.get("Reports")
+    def list_reports(self, limit=50, offset=0):
+        return self.get(
+            "Reports",
+            {"limit": limit, "offset": offset},
+            result_limit=limit,
+        )
 
     def get_report(self, report_id):
         return self.get(f"Reports/{report_id}")
 
     # ── Share Links ───────────────────────────────────────────────────────────
 
-    def list_share_links(self):
-        return self.get("ShareLinks")
+    def list_share_links(self, limit=50, last_key=""):
+        params = {"limit": limit}
+        if last_key:
+            params["lastKey"] = last_key
+        return self.get("ShareLinks", params, result_limit=limit)
 
     def get_share_link(self, link_id):
         return self.get(f"ShareLinks/{link_id}")
@@ -678,8 +895,10 @@ class FileVineClient:
 
     # ── Mailroom ──────────────────────────────────────────────────────────────
 
-    def list_mailroom(self):
-        return self.get("Mailroom/Items")
+    def list_mailroom(self, limit=50, offset=0):
+        return self.get(
+            "Mailroom/Items", {"offset": offset}, result_limit=limit
+        )
 
     def create_mailroom_item(self, **fields):
         return self.post("Mailroom/Items/Assign", fields)
@@ -703,8 +922,12 @@ class FileVineClient:
 
     # ── Recently Opened Documents ─────────────────────────────────────────────
 
-    def list_recently_opened_documents(self):
-        return self.get("RecentlyOpenedDocuments")
+    def list_recently_opened_documents(self, limit=50, offset=0):
+        return self.get(
+            "RecentlyOpenedDocuments",
+            {"offset": offset},
+            result_limit=limit,
+        )
 
     # ── Classifications ───────────────────────────────────────────────────────
 

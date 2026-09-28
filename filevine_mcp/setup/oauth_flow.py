@@ -11,8 +11,9 @@ import json
 import os
 import sys
 import time
-import requests
 from pathlib import Path
+
+import requests
 
 from filevine_mcp import credentials
 
@@ -63,7 +64,7 @@ def fetch_token(client_id, client_secret, identity_base, pat):
     )
     if resp.status_code == 200:
         return resp.json()
-    raise RuntimeError(f"Token request failed ({resp.status_code}): {resp.text}")
+    raise RuntimeError(f"Token request failed ({resp.status_code})")
 
 
 def main():
@@ -75,7 +76,7 @@ def main():
     print("Region options: us, ca, cjis")
     region = prompt("Region", default="us").lower()
     if region not in REGIONS:
-        print(f"Unknown region '{region}'. Defaulting to 'us'.")
+        print("Unknown region. Defaulting to 'us'.")
         region = "us"
 
     region_cfg = REGIONS[region]
