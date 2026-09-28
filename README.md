@@ -44,7 +44,8 @@ pip install filevine-mcp
 filevine-mcp-setup
 ```
 
-This prompts for your Client ID, Client Secret, Org ID, and region, then tests the credentials and saves them to `~/.filevine-mcp/`.
+This prompts for your Client ID, Client Secret, Org ID, and region, then
+tests the credentials and saves them through the configured credential store.
 
 Verify:
 
@@ -75,8 +76,7 @@ via the cross-platform [`keyring`](https://github.com/jaraco/keyring) library:
 | Windows | Credential Manager                       |
 | Linux   | Secret Service (GNOME Keyring / KWallet) |
 
-Secrets are saved under the service name `filevine-mcp`. Nothing is written to
-disk in clear text.
+Secrets saved to the keyring use the service name `filevine-mcp`.
 
 **File fallback.** On a host with no keyring backend (e.g. a headless Linux box
 without Secret Service), or if you set `FILEVINE_MCP_USE_KEYRING=0`, credentials
@@ -93,8 +93,8 @@ Filevine uses OAuth 2.0 **client credentials** flow — no browser authorization
 
 | Region | API Host            | Identity Host            |
 | ------ | ------------------- | ------------------------ |
-| us     | api.filevineapp.com | identity.filevineapp.com |
-| ca     | api.filevineapp.ca  | identity.filevineapp.ca  |
+| us     | api.filevineapp.com | identity.filevine.com    |
+| ca     | api.filevineapp.ca  | identity.filevine.ca     |
 | cjis   | api.filevinegov.com | identity.filevinegov.com |
 
 ## Example usage in Claude
