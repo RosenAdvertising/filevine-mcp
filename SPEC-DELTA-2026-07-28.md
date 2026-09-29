@@ -9,14 +9,14 @@ contains reproducible local checks and their scope.
 
 ## Protocol surfaces used here
 
-| Change | Repository mapping |
-| --- | --- |
+| Change                                                                                                                                   | Repository mapping                                                                                                                                                                                                                                |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Modern requests are sessionless and carry protocol/capability metadata. Servers implement `server/discover`; results carry `resultType`. | The SDK handles modern dispatch and discovery. Tests check server identity, negotiated versions, capabilities, ordinary `complete` results, and legacy negotiation. Downstream Filevine credential and token state is separate from MCP sessions. |
-| Streamable HTTP requests use `MCP-Protocol-Version`, `Mcp-Method`, and, for named operations, `Mcp-Name`. | The production entry point remains stdio. In-process HTTP tests check required headers and mismatches; no tool parameter opts into `x-mcp-header`. |
-| Tool, prompt, resource, and resource-template listings and resource reads include cache metadata. | Tests check the SDK's conservative `ttlMs: 0` and `cacheScope: private` values. |
-| `tools/list` should be deterministic; tool input schemas accept JSON Schema 2020-12 keywords. | Registration order is stable. Tests check repeated names and generated object schemas; tool success and validation payloads remain JSON strings. |
-| Errors use revised codes. | Tests cover unknown resource `-32602`, header mismatch `-32020`, unsupported version `-32022`, and unknown method `-32601`. |
-| Capabilities can declare extensions. | Discovery advertises the registered tool, resource, and prompt capabilities without an unused extension. |
+| Streamable HTTP requests use `MCP-Protocol-Version`, `Mcp-Method`, and, for named operations, `Mcp-Name`.                                | The production entry point remains stdio. In-process HTTP tests check required headers and mismatches; no tool parameter opts into `x-mcp-header`.                                                                                                |
+| Tool, prompt, resource, and resource-template listings and resource reads include cache metadata.                                        | Tests check the SDK's conservative `ttlMs: 0` and `cacheScope: private` values.                                                                                                                                                                   |
+| `tools/list` should be deterministic; tool input schemas accept JSON Schema 2020-12 keywords.                                            | Registration order is stable. Tests check repeated names and generated object schemas; tool success and validation payloads remain JSON strings.                                                                                                  |
+| Errors use revised codes.                                                                                                                | Tests cover unknown resource `-32602`, header mismatch `-32020`, unsupported version `-32022`, and unknown method `-32601`.                                                                                                                       |
+| Capabilities can declare extensions.                                                                                                     | Discovery advertises the registered tool, resource, and prompt capabilities without an unused extension.                                                                                                                                          |
 
 The server does not implement MCP tasks, MRTR, roots, sampling, elicitation,
 MCP authorization, dynamic client registration, protocol logging,

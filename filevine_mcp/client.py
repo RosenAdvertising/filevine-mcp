@@ -878,7 +878,7 @@ class FileVineClient:
     # ── Share Links ───────────────────────────────────────────────────────────
 
     def list_share_links(self, limit=50, last_key=""):
-        params = {"limit": limit}
+        params: dict[str, int | str] = {"limit": limit}
         if last_key:
             params["lastKey"] = last_key
         return self.get("ShareLinks", params, result_limit=limit)

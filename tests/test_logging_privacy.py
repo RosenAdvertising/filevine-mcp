@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 import pytest
 
@@ -94,8 +95,8 @@ class FakeSession:
 
 def test_api_error_never_includes_upstream_response_body() -> None:
     instance = object.__new__(FileVineClient)
-    instance.tm = FreshToken()
-    instance.session = FakeSession()
+    instance.tm = cast(TokenManager, FreshToken())
+    instance.session = cast(client.requests.Session, FakeSession())
 
     with pytest.raises(RuntimeError) as exc_info:
         instance._request("GET", "Users/Me")

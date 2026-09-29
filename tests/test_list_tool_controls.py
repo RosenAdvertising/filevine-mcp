@@ -70,7 +70,7 @@ def test_every_named_list_tool_is_classified_and_paginated_ones_are_bounded() ->
         assert limit["maximum"] == 200, name
 
 
-class RecordingClient:
+class RecordingClient(FileVineClient):
     def __init__(self) -> None:
         self.call: tuple[str, dict | None, int | None] | None = None
 
@@ -252,9 +252,13 @@ def test_ordering_defaults_avoid_oldest_first() -> None:
     }
 
     FileVineClient.list_note_comments(recorder, "note", limit=7, offset=0)
-    assert recorder.call is not None
-    assert recorder.call[1]["orderByDescending"] is True
+    call = recorder.call
+    assert call is not None
+    assert call[1] is not None
+    assert call[1]["orderByDescending"] is True
 
     FileVineClient.list_folders(recorder, limit=7, offset=0)
-    assert recorder.call is not None
-    assert recorder.call[1]["ascendingOrder"] is False
+    call = recorder.call
+    assert call is not None
+    assert call[1] is not None
+    assert call[1]["ascendingOrder"] is False
