@@ -53,7 +53,7 @@ def make_client(session) -> Any:
     return instance
 
 
-@pytest.mark.parametrize("status", [400, 401, 403, 429, 500])
+@pytest.mark.parametrize("status", [301, 302, 307, 400, 401, 403, 404, 429, 500, 503])
 def test_empty_failure_responses_do_not_succeed(status, monkeypatch):
     monkeypatch.setattr(client.time, "sleep", lambda _seconds: None)
     responses = [Response(status)]
@@ -122,6 +122,23 @@ def test_retry_after_budget_is_aggregate_and_preserves_vendor_delay(monkeypatch)
         api.get("Users/Me")
     assert waits == [40]
     assert sum(waits) <= client.MAX_RETRY_SLEEP
+
+
+def test_retry_after_budget_survives_unauthorized_refresh(monkeypatch):
+    waits = []
+    monkeypatch.setattr(client.time, "sleep", waits.append)
+    api = make_client(
+        Session(
+            [
+                Response(429, headers={"Retry-After": "40"}),
+                Response(401),
+                Response(429, headers={"Retry-After": "30"}),
+            ]
+        )
+    )
+    with pytest.raises(client.FilevineClientError, match="Retry after 30 seconds"):
+        api.get("Users/Me")
+    assert waits == [40]
 
 
 def test_retry_after_limit_spans_repeated_tool_calls(monkeypatch):
@@ -341,6 +358,30 @@ def test_setup_entrypoint_bad_key_exits_without_traceback(monkeypatch, capsys):
     assert "Traceback" not in output
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        [],
+        {"access_token": "", "expires_in": 10},
+        {"access_token": "fake", "expires_in": "soon"},
+    ],
+)
+def test_setup_malformed_success_envelope_exits_without_traceback(
+    monkeypatch, capsys, body
+):
+    answers = iter(["us", "fake-id", "fake-secret", "fake-pat", "fake-org"])
+    monkeypatch.setattr(oauth_flow, "prompt", lambda *args, **kwargs: next(answers))
+    monkeypatch.setattr(
+        oauth_flow.requests, "post", lambda *args, **kwargs: Response(body=body)
+    )
+    with pytest.raises(SystemExit) as exit_error:
+        oauth_flow.main()
+    output = capsys.readouterr().out
+    assert exit_error.value.code == 1
+    assert "invalid authorization response" in output
+    assert "Traceback" not in output
+
+
 def test_setup_entrypoint_eof_fails_clearly(monkeypatch, capsys):
     monkeypatch.setattr(
         oauth_flow, "prompt", lambda *args, **kwargs: (_ for _ in ()).throw(EOFError)
@@ -454,4 +495,15 @@ def test_long_retry_after_returns_hint_without_sleep(monkeypatch):
         result.content[0].text
         == "Error executing tool get_current_user: Filevine rate limit reached. Retry after 61 seconds."
     )
+    assert sleeps == []
+
+
+@pytest.mark.parametrize("header", ["60.1", "Thu, 01 Jan 1970 00:01:01 GMT"])
+def test_fractional_and_date_retry_after_preserve_long_delay(monkeypatch, header):
+    sleeps = []
+    monkeypatch.setattr(client.time, "sleep", sleeps.append)
+    monkeypatch.setattr(client.time, "time", lambda: 0)
+    api = make_client(Session([Response(429, headers={"Retry-After": header})]))
+    with pytest.raises(client.FilevineClientError, match="Retry after 61 seconds"):
+        api.get("Users/Me")
     assert sleeps == []

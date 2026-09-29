@@ -16,7 +16,11 @@ from pathlib import Path
 import requests
 
 from filevine_mcp import credentials
-from filevine_mcp.client import REQUEST_TIMEOUT, FilevineClientError, _json_response
+from filevine_mcp.client import (
+    REQUEST_TIMEOUT,
+    FilevineClientError,
+    _token_response,
+)
 
 CONFIG_DIR = Path.home() / ".filevine-mcp"
 
@@ -64,7 +68,7 @@ def fetch_token(client_id, client_secret, identity_base, pat):
         timeout=REQUEST_TIMEOUT,
     )
     if resp.status_code == 200:
-        return _json_response(resp)
+        return _token_response(resp)
     if resp.status_code == 401:
         raise FilevineClientError(
             "Filevine rejected the credentials (401). Check the client ID, secret, and PAT."

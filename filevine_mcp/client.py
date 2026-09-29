@@ -3,10 +3,12 @@
 
 import json
 import logging
+import math
 import os
 import sys
 import time
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -65,10 +67,18 @@ class FilevineClientError(ToolError, RuntimeError):
 
 
 def _retry_after_seconds(resp, default=10):
+    """Honor numeric and HTTP-date delays without sleeping beyond the budget."""
+    value = resp.headers.get("Retry-After", default)
     try:
-        return int(resp.headers.get("Retry-After", default))
+        seconds = float(value)
     except (TypeError, ValueError):
+        try:
+            seconds = parsedate_to_datetime(value).timestamp() - time.time()
+        except (TypeError, ValueError, OverflowError):
+            return default
+    if not math.isfinite(seconds):
         return default
+    return max(0, math.ceil(seconds))
 
 
 def _json_response(resp):
@@ -76,6 +86,31 @@ def _json_response(resp):
         return resp.json()
     except ValueError:
         raise FilevineClientError("Filevine returned an unreadable response.") from None
+
+
+def _token_response(resp):
+    """Decode a token envelope without trusting its shape or values."""
+    payload = _json_response(resp)
+    if (
+        not isinstance(payload, dict)
+        or not isinstance(payload.get("access_token"), str)
+        or not payload.get("access_token")
+    ):
+        raise FilevineClientError(
+            "Filevine returned an invalid authorization response. Re-run filevine-mcp-setup."
+        )
+    expires_in = payload.get("expires_in", 3600)
+    if (
+        isinstance(expires_in, bool)
+        or not isinstance(expires_in, (int, float))
+        or (isinstance(expires_in, float) and not math.isfinite(expires_in))
+        or expires_in < 0
+        or expires_in > 315_360_000
+    ):
+        raise FilevineClientError(
+            "Filevine returned an invalid authorization response. Re-run filevine-mcp-setup."
+        )
+    return payload
 
 
 def _cap_collection(payload, limit):
@@ -181,7 +216,7 @@ class TokenManager:
                 "Filevine authorization request lost its connection; the outcome is unknown. Check whether authorization completed before retrying setup."
             ) from None
         if resp.status_code == 200:
-            tokens = _json_response(resp)
+            tokens = _token_response(resp)
             expires_in = tokens.get("expires_in", 3600)
             tokens["expires_at"] = time.time() + expires_in
             tokens["fetched_at"] = datetime.now(timezone.utc).isoformat()
@@ -297,7 +332,7 @@ class FileVineClient:
             raise FilevineClientError(
                 "Filevine access denied: the connected account lacks permission for this action (or the authorization expired; re-run filevine-mcp-setup if so)."
             )
-        if not resp.ok and resp.status_code != 204:
+        if not 200 <= resp.status_code < 300:
             if resp.status_code == 429:
                 retry_hint = _retry_after_seconds(resp)
                 raise FilevineClientError(
