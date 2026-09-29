@@ -51,9 +51,9 @@ def test_every_confirmation_rejection_logs_a_pii_free_reason(
     assert "confirm=True" in result
     assert len(caplog.records) == 1
     record = caplog.records[0]
-    assert record.event == "tool_call_rejected"
-    assert record.tool == tool_name
-    assert record.reason == "confirmation_required"
+    assert getattr(record, "event") == "tool_call_rejected"
+    assert getattr(record, "tool") == tool_name
+    assert getattr(record, "reason") == "confirmation_required"
     assert PII_MARKER not in caplog.text
 
 
@@ -66,9 +66,9 @@ def test_argument_validation_log_omits_raw_fields_json(
     assert "Invalid fields_json" in result
     assert len(caplog.records) == 1
     record = caplog.records[0]
-    assert record.event == "tool_call_rejected"
-    assert record.tool == "create_project"
-    assert record.reason == "invalid_arguments"
+    assert getattr(record, "event") == "tool_call_rejected"
+    assert getattr(record, "tool") == "create_project"
+    assert getattr(record, "reason") == "invalid_arguments"
     assert PII_MARKER not in caplog.text
 
 
@@ -144,7 +144,7 @@ def test_missing_org_guard_logs_only_a_reason_code(
         FileVineClient()
 
     assert len(caplog.records) == 1
-    assert caplog.records[0].reason == "missing_org_id"
+    assert getattr(caplog.records[0], "reason") == "missing_org_id"
     assert PII_MARKER not in caplog.text
 
 
