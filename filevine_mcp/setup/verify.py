@@ -3,7 +3,7 @@
 
 import sys
 
-from filevine_mcp.client import FileVineClient
+from filevine_mcp.client import FileVineClient, FilevineClientError
 
 
 def main():
@@ -12,8 +12,19 @@ def main():
         client = FileVineClient()
         client.get_me()
         print("✓ Filevine credentials verified.")
+    except FilevineClientError as exc:
+        print(f"✗ Verification failed: {exc}")
+        print("Run filevine-mcp-setup to update credentials or authorization.")
+        sys.exit(1)
+    except ValueError:
+        print(
+            "✗ Verification failed. Check the organization ID and stored tokens; run filevine-mcp-setup."
+        )
+        sys.exit(1)
     except Exception:
-        print("✗ Verification failed. Check credentials, region, and network access.")
+        print(
+            "✗ Verification failed unexpectedly. Check configuration and network access."
+        )
         sys.exit(1)
 
 

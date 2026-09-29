@@ -8,8 +8,10 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 import requests
+from mcp.server.mcpserver.exceptions import ToolError
 
 from filevine_mcp import credentials
 
@@ -54,6 +56,12 @@ _region_cfg = REGIONS.get(REGION, REGIONS["us"])
 BASE_URL = _region_cfg["api"]
 IDENTITY_URL = _region_cfg["identity"]
 TOKEN_URL = f"{IDENTITY_URL}/connect/token"
+REQUEST_TIMEOUT = 30
+MAX_RETRY_SLEEP = 60
+
+
+class FilevineClientError(ToolError, RuntimeError):
+    """A safe, actionable failure suitable for returning to an MCP client."""
 
 
 def _retry_after_seconds(resp, default=10):
@@ -67,9 +75,7 @@ def _json_response(resp):
     try:
         return resp.json()
     except ValueError:
-        raise RuntimeError(
-            f"Filevine API returned a non-JSON response ({resp.status_code})"
-        ) from None
+        raise FilevineClientError("Filevine returned an unreadable response.") from None
 
 
 def _cap_collection(payload, limit):
@@ -101,14 +107,29 @@ class TokenManager:
 
     def _load(self):
         if self.token_file.exists():
-            with open(self.token_file) as f:
-                return json.load(f)
+            try:
+                with open(self.token_file) as f:
+                    tokens = json.load(f)
+                if not isinstance(tokens, dict):
+                    raise ValueError
+                return tokens
+            except (OSError, ValueError):
+                raise FilevineClientError(
+                    "Filevine stored tokens could not be read. Re-run filevine-mcp-setup."
+                ) from None
         return {}
 
     def save(self, tokens):
         self.tokens = tokens
         self.token_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.token_file, "w") as f:
+
+        def secure_open(path, flags):
+            fd = os.open(path, flags, 0o600)
+            if hasattr(os, "fchmod"):
+                os.fchmod(fd, 0o600)
+            return fd
+
+        with open(self.token_file, "w", opener=secure_open) as f:
             json.dump(tokens, f, indent=2)
         os.chmod(self.token_file, 0o600)
 
@@ -129,7 +150,7 @@ class TokenManager:
                     "reason": "missing_client_credentials",
                 },
             )
-            raise RuntimeError(
+            raise FilevineClientError(
                 "FILEVINE_CLIENT_ID and FILEVINE_CLIENT_SECRET are required. Run: filevine-mcp-setup"
             )
         if not FILEVINE_PAT:
@@ -137,21 +158,28 @@ class TokenManager:
                 "Filevine request rejected",
                 extra={"event": "request_rejected", "reason": "missing_pat"},
             )
-            raise RuntimeError("FILEVINE_PAT is required. Run: filevine-mcp-setup")
-        resp = requests.post(
-            TOKEN_URL,
-            data={
-                "grant_type": "personal_access_token",
-                "token": FILEVINE_PAT,
-                "client_id": CLIENT_ID,
-                "client_secret": CLIENT_SECRET,
-                "scope": (
-                    "fv.api.gateway.access tenant filevine.v2.api.* "
-                    "openid email fv.auth.tenant.read filevine.v2.webhooks"
-                ),
-            },
-            timeout=5,
-        )
+            raise FilevineClientError(
+                "FILEVINE_PAT is required. Run: filevine-mcp-setup"
+            )
+        try:
+            resp = requests.post(
+                TOKEN_URL,
+                data={
+                    "grant_type": "personal_access_token",
+                    "token": FILEVINE_PAT,
+                    "client_id": CLIENT_ID,
+                    "client_secret": CLIENT_SECRET,
+                    "scope": (
+                        "fv.api.gateway.access tenant filevine.v2.api.* "
+                        "openid email fv.auth.tenant.read filevine.v2.webhooks"
+                    ),
+                },
+                timeout=REQUEST_TIMEOUT,
+            )
+        except requests.RequestException:
+            raise FilevineClientError(
+                "Filevine authorization request lost its connection; the outcome is unknown. Check whether authorization completed before retrying setup."
+            ) from None
         if resp.status_code == 200:
             tokens = _json_response(resp)
             expires_in = tokens.get("expires_in", 3600)
@@ -159,7 +187,17 @@ class TokenManager:
             tokens["fetched_at"] = datetime.now(timezone.utc).isoformat()
             self.save(tokens)
             return tokens
-        raise RuntimeError(f"Token fetch failed ({resp.status_code})")
+        if resp.status_code == 401:
+            raise FilevineClientError(
+                "Filevine authorization failed (401). Re-run filevine-mcp-setup to reauthorize."
+            )
+        if resp.status_code == 403:
+            raise FilevineClientError(
+                "Filevine access denied: the connected account lacks permission for this action (or the authorization expired; re-run filevine-mcp-setup if so)."
+            )
+        raise FilevineClientError(
+            f"Filevine token request failed (HTTP {resp.status_code}). Check credentials and region."
+        )
 
     def get_valid_token(self):
         if not self.access_token or self.is_expired():
@@ -196,21 +234,49 @@ class FileVineClient:
         params=None,
         json_body=None,
         _rate_retries=0,
+        _retry_sleep=0,
         result_limit=None,
     ):
         if self.tm.is_expired():
             self._refresh_headers()
 
         url = f"{BASE_URL}{API_PREFIX}/{path.lstrip('/')}"
-        resp = self.session.request(method, url, params=params, json=json_body)
+        try:
+            resp = self.session.request(
+                method, url, params=params, json=json_body, timeout=REQUEST_TIMEOUT
+            )
+        except (requests.Timeout, requests.ConnectionError):
+            if method.upper() in {"GET", "HEAD", "OPTIONS"}:
+                raise FilevineClientError(
+                    "Filevine request timed out or lost its connection. Check connectivity and retry."
+                ) from None
+            raise FilevineClientError(
+                "Filevine request timed out or lost its connection; the outcome is unknown. Check whether it completed before retrying."
+            ) from None
 
         if resp.status_code == 401:
             self.tm.fetch()
             self._refresh_headers()
-            resp = self.session.request(method, url, params=params, json=json_body)
+            try:
+                resp = self.session.request(
+                    method, url, params=params, json=json_body, timeout=REQUEST_TIMEOUT
+                )
+            except (requests.Timeout, requests.ConnectionError):
+                if method.upper() in {"GET", "HEAD", "OPTIONS"}:
+                    raise FilevineClientError(
+                        "Filevine request timed out or lost its connection. Check connectivity and retry."
+                    ) from None
+                raise FilevineClientError(
+                    "Filevine request timed out or lost its connection; the outcome is unknown. Check whether it completed before retrying."
+                ) from None
 
         if resp.status_code == 429 and _rate_retries < 3:
-            retry_after = _retry_after_seconds(resp)
+            retry_after = max(0, _retry_after_seconds(resp))
+            remaining = MAX_RETRY_SLEEP - _retry_sleep
+            if retry_after > remaining:
+                raise FilevineClientError(
+                    f"Filevine rate limit reached. Retry after {retry_after} seconds."
+                )
             print(f"Rate limited. Waiting {retry_after}s...", file=sys.stderr)
             time.sleep(retry_after)
             return self._request(
@@ -219,19 +285,32 @@ class FileVineClient:
                 params=params,
                 json_body=json_body,
                 _rate_retries=_rate_retries + 1,
+                _retry_sleep=_retry_sleep + retry_after,
                 result_limit=result_limit,
+            )
+
+        if resp.status_code == 401:
+            raise FilevineClientError(
+                "Filevine authorization failed (401). Re-run filevine-mcp-setup to reauthorize."
+            )
+        if resp.status_code == 403:
+            raise FilevineClientError(
+                "Filevine access denied: the connected account lacks permission for this action (or the authorization expired; re-run filevine-mcp-setup if so)."
+            )
+        if not resp.ok and resp.status_code != 204:
+            if resp.status_code == 429:
+                retry_hint = _retry_after_seconds(resp)
+                raise FilevineClientError(
+                    f"Filevine rate limit reached. Retry after {max(0, retry_hint)} seconds."
+                )
+            raise FilevineClientError(
+                f"Filevine request failed with HTTP {resp.status_code}. Check account permissions and request details."
             )
 
         if resp.status_code == 204 or not resp.content:
             return {"success": True}
 
-        if not resp.ok:
-            raise RuntimeError(f"Filevine API error {resp.status_code}")
-
-        try:
-            payload = resp.json()
-        except ValueError:
-            payload = {"raw": "non-JSON response"}
+        payload = _json_response(resp)
         return (
             _cap_collection(payload, result_limit)
             if result_limit is not None
@@ -266,28 +345,28 @@ class FileVineClient:
         )
 
     def get_user(self, user_id):
-        return self.get(f"users/{user_id}")
+        return self.get(f"users/{quote(str(user_id), safe='')}")
 
     def get_user_tasks(self, user_id, limit=50, offset=0):
         return self.get(
-            f"users/{user_id}/tasks",
+            f"users/{quote(str(user_id), safe='')}/tasks",
             {"limit": limit, "offset": offset},
             result_limit=limit,
         )
 
     def get_user_appointments(self, user_id, limit=50, offset=0):
         return self.get(
-            f"users/{user_id}/appointments",
+            f"users/{quote(str(user_id), safe='')}/appointments",
             {"limit": limit, "offset": offset},
             result_limit=limit,
         )
 
     def get_user_recent_projects(self, user_id):
-        return self.get(f"users/{user_id}/recentprojects")
+        return self.get(f"users/{quote(str(user_id), safe='')}/recentprojects")
 
     def get_user_project_access(self, user_id, limit=50, offset=0):
         return self.get(
-            f"users/{user_id}/projects/access",
+            f"users/{quote(str(user_id), safe='')}/projects/access",
             {"limit": limit, "offset": offset},
             result_limit=limit,
         )
@@ -313,25 +392,30 @@ class FileVineClient:
         )
 
     def get_project(self, project_id):
-        return self.get(f"Projects/{project_id}")
+        return self.get(f"Projects/{quote(str(project_id), safe='')}")
 
     def create_project(self, **fields):
         return self.post("Projects", fields)
 
     def update_project(self, project_id, **fields):
-        return self.patch(f"Projects/{project_id}", fields)
+        return self.patch(f"Projects/{quote(str(project_id), safe='')}", fields)
 
     def archive_project(self, project_id):
-        return self.delete(f"projects/{project_id}")
+        return self.delete(f"projects/{quote(str(project_id), safe='')}")
 
     def get_project_vitals(self, project_id):
-        return self.get(f"Projects/{project_id}/Vitals")
+        return self.get(f"Projects/{quote(str(project_id), safe='')}/Vitals")
 
     def get_project_form(self, project_id, selector):
-        return self.get(f"Projects/{project_id}/Forms/{selector}")
+        return self.get(
+            f"Projects/{quote(str(project_id), safe='')}/Forms/{quote(str(selector), safe='')}"
+        )
 
     def update_project_form(self, project_id, selector, **fields):
-        return self.patch(f"Projects/{project_id}/Forms/{selector}", fields)
+        return self.patch(
+            f"Projects/{quote(str(project_id), safe='')}/Forms/{quote(str(selector), safe='')}",
+            fields,
+        )
 
     # ── Project Contacts ──────────────────────────────────────────────────────
 
@@ -347,45 +431,56 @@ class FileVineClient:
         if sort_by:
             params["sortBy"] = sort_by
         return self.get(
-            f"projects/{project_id}/contacts",
+            f"projects/{quote(str(project_id), safe='')}/contacts",
             params,
             result_limit=limit,
         )
 
     def add_contact_to_project(self, project_id, contact_id, **fields):
         body = {"contactId": contact_id, **fields}
-        return self.post(f"projects/{project_id}/contacts", body)
+        return self.post(f"projects/{quote(str(project_id), safe='')}/contacts", body)
 
     def update_project_contact(self, project_id, project_contact_id, **fields):
         return self.patch(
-            f"Projects/{project_id}/contacts/{project_contact_id}", fields
+            f"Projects/{quote(str(project_id), safe='')}/contacts/{quote(str(project_contact_id), safe='')}",
+            fields,
         )
 
     def remove_contact_from_project(self, project_id, project_contact_id):
-        return self.delete(f"Projects/{project_id}/contacts/{project_contact_id}")
+        return self.delete(
+            f"Projects/{quote(str(project_id), safe='')}/contacts/{quote(str(project_contact_id), safe='')}"
+        )
 
     # ── Project Collections (Custom Sections) ─────────────────────────────────
 
     def list_collection_items(self, project_id, selector, limit=50, offset=0):
         return self.get(
-            f"Projects/{project_id}/Collections/{selector}",
+            f"Projects/{quote(str(project_id), safe='')}/Collections/{quote(str(selector), safe='')}",
             {"limit": limit, "offset": offset},
             result_limit=limit,
         )
 
     def get_collection_item(self, project_id, selector, unique_id):
-        return self.get(f"Projects/{project_id}/Collections/{selector}/{unique_id}")
+        return self.get(
+            f"Projects/{quote(str(project_id), safe='')}/Collections/{quote(str(selector), safe='')}/{quote(str(unique_id), safe='')}"
+        )
 
     def create_collection_item(self, project_id, selector, **fields):
-        return self.post(f"Projects/{project_id}/Collections/{selector}", fields)
+        return self.post(
+            f"Projects/{quote(str(project_id), safe='')}/Collections/{quote(str(selector), safe='')}",
+            fields,
+        )
 
     def update_collection_item(self, project_id, selector, unique_id, **fields):
         return self.patch(
-            f"Projects/{project_id}/Collections/{selector}/{unique_id}", fields
+            f"Projects/{quote(str(project_id), safe='')}/Collections/{quote(str(selector), safe='')}/{quote(str(unique_id), safe='')}",
+            fields,
         )
 
     def delete_collection_item(self, project_id, selector, unique_id):
-        return self.delete(f"Projects/{project_id}/Collections/{selector}/{unique_id}")
+        return self.delete(
+            f"Projects/{quote(str(project_id), safe='')}/Collections/{quote(str(selector), safe='')}/{quote(str(unique_id), safe='')}"
+        )
 
     # ── Project Teams ─────────────────────────────────────────────────────────
 
@@ -401,112 +496,143 @@ class FileVineClient:
         if sort_by:
             params["sortBy"] = sort_by
         return self.get(
-            f"projects/{project_id}/team",
+            f"projects/{quote(str(project_id), safe='')}/team",
             params,
             result_limit=limit,
         )
 
     def get_project_team_member(self, project_id, user_id):
-        return self.get(f"projects/{project_id}/team/{user_id}")
+        return self.get(
+            f"projects/{quote(str(project_id), safe='')}/team/{quote(str(user_id), safe='')}"
+        )
 
     def update_project_team_member(self, project_id, user_id, **fields):
-        return self.patch(f"projects/{project_id}/team/{user_id}", fields)
+        return self.patch(
+            f"projects/{quote(str(project_id), safe='')}/team/{quote(str(user_id), safe='')}",
+            fields,
+        )
 
     def remove_project_team_member(self, project_id, user_id):
-        return self.delete(f"projects/{project_id}/team/{user_id}")
+        return self.delete(
+            f"projects/{quote(str(project_id), safe='')}/team/{quote(str(user_id), safe='')}"
+        )
 
     def add_team_member(self, project_id, **fields):
-        return self.post(f"projects/{project_id}/team", fields)
+        return self.post(f"projects/{quote(str(project_id), safe='')}/team", fields)
 
     # ── Project Appointments ──────────────────────────────────────────────────
 
     def list_project_appointments(self, project_id, limit=50, offset=0):
         return self.get(
-            f"Projects/{project_id}/Appointments",
+            f"Projects/{quote(str(project_id), safe='')}/Appointments",
             {"limit": limit, "offset": offset},
             result_limit=limit,
         )
 
     def create_project_appointment(self, project_id, **fields):
-        return self.post(f"Projects/{project_id}/Appointments", fields)
+        return self.post(
+            f"Projects/{quote(str(project_id), safe='')}/Appointments", fields
+        )
 
     # ── Project Notes ─────────────────────────────────────────────────────────
 
     def list_project_notes(self, project_id, limit=50, offset=0):
         return self.get(
-            f"Projects/{project_id}/Notes",
+            f"Projects/{quote(str(project_id), safe='')}/Notes",
             {"limit": limit, "offset": offset},
             result_limit=limit,
         )
 
     def pin_note_to_project(self, project_id, note_id):
-        return self.post(f"projects/{project_id}/notes/{note_id}/pin")
+        return self.post(
+            f"projects/{quote(str(project_id), safe='')}/notes/{quote(str(note_id), safe='')}/pin"
+        )
 
     def unpin_note_from_project(self, project_id, note_id):
-        return self.post(f"projects/{project_id}/notes/{note_id}/unpin")
+        return self.post(
+            f"projects/{quote(str(project_id), safe='')}/notes/{quote(str(note_id), safe='')}/unpin"
+        )
 
     # ── Project Deadlines ─────────────────────────────────────────────────────
 
     def list_project_deadlines(self, project_id, limit=50, offset=0):
         return self.get(
-            f"projects/{project_id}/deadlines",
+            f"projects/{quote(str(project_id), safe='')}/deadlines",
             {"limit": limit, "offset": offset},
             result_limit=limit,
         )
 
     def get_project_deadline(self, project_id, deadline_id):
-        return self.get(f"projects/{project_id}/deadlines/{deadline_id}")
+        return self.get(
+            f"projects/{quote(str(project_id), safe='')}/deadlines/{quote(str(deadline_id), safe='')}"
+        )
 
     def create_project_deadline(self, project_id, **fields):
-        return self.post(f"projects/{project_id}/deadlines", fields)
+        return self.post(
+            f"projects/{quote(str(project_id), safe='')}/deadlines", fields
+        )
 
     def update_project_deadline(self, project_id, deadline_id, **fields):
-        return self.patch(f"projects/{project_id}/deadlines/{deadline_id}", fields)
+        return self.patch(
+            f"projects/{quote(str(project_id), safe='')}/deadlines/{quote(str(deadline_id), safe='')}",
+            fields,
+        )
 
     def delete_project_deadline(self, project_id, deadline_id):
-        return self.delete(f"projects/{project_id}/deadlines/{deadline_id}")
+        return self.delete(
+            f"projects/{quote(str(project_id), safe='')}/deadlines/{quote(str(deadline_id), safe='')}"
+        )
 
     # ── Project Emails ────────────────────────────────────────────────────────
 
     def list_project_emails(self, project_id, limit=50, offset=0):
         return self.get(
-            f"projects/{project_id}/emails",
+            f"projects/{quote(str(project_id), safe='')}/emails",
             {"limit": limit, "offset": offset},
             result_limit=limit,
         )
 
     def add_email_to_project(self, project_id, **fields):
-        return self.post(f"projects/{project_id}/emails", fields)
+        return self.post(f"projects/{quote(str(project_id), safe='')}/emails", fields)
 
     # ── Project Invoices ──────────────────────────────────────────────────────
 
     def create_invoice(self, project_id, **fields):
-        return self.post(f"projects/{project_id}/invoices", fields)
+        return self.post(f"projects/{quote(str(project_id), safe='')}/invoices", fields)
 
     def update_invoice(self, project_id, invoice_id, **fields):
-        return self.put(f"projects/{project_id}/invoices/{invoice_id}", fields)
+        return self.put(
+            f"projects/{quote(str(project_id), safe='')}/invoices/{quote(str(invoice_id), safe='')}",
+            fields,
+        )
 
     def delete_invoice(self, project_id, invoice_id):
-        return self.delete(f"projects/{project_id}/invoices/{invoice_id}")
+        return self.delete(
+            f"projects/{quote(str(project_id), safe='')}/invoices/{quote(str(invoice_id), safe='')}"
+        )
 
     def finalize_invoice(self, project_id, invoice_id):
-        return self.post(f"projects/{project_id}/invoices/{invoice_id}/finalize")
+        return self.post(
+            f"projects/{quote(str(project_id), safe='')}/invoices/{quote(str(invoice_id), safe='')}/finalize"
+        )
 
     def get_project_invoices(self, project_id, limit=50, offset=0):
         return self.get(
-            f"billing/projects/{project_id}/invoices",
+            f"billing/projects/{quote(str(project_id), safe='')}/invoices",
             {"limit": limit, "offset": offset},
             result_limit=limit,
         )
 
     def get_invoice_pdf(self, invoice_id):
-        return self.get(f"billing/invoices/{invoice_id}/pdf")
+        return self.get(f"billing/invoices/{quote(str(invoice_id), safe='')}/pdf")
 
     def approve_invoice(self, invoice_id):
-        return self.post(f"billing/invoices/{invoice_id}/approve")
+        return self.post(f"billing/invoices/{quote(str(invoice_id), safe='')}/approve")
 
     def mark_invoice_sent(self, invoice_id):
-        return self.post(f"billing/invoices/{invoice_id}/mark-as-sent")
+        return self.post(
+            f"billing/invoices/{quote(str(invoice_id), safe='')}/mark-as-sent"
+        )
 
     # ── Contacts ──────────────────────────────────────────────────────────────
 
@@ -518,38 +644,38 @@ class FileVineClient:
         )
 
     def get_contact(self, contact_id):
-        return self.get(f"Contacts/{contact_id}")
+        return self.get(f"Contacts/{quote(str(contact_id), safe='')}")
 
     def create_contact(self, **fields):
         return self.post("Contacts", fields)
 
     def update_contact(self, contact_id, **fields):
-        return self.patch(f"Contacts/{contact_id}", fields)
+        return self.patch(f"Contacts/{quote(str(contact_id), safe='')}", fields)
 
     def get_contact_addresses(self, contact_id, limit=50, offset=0):
         return self.get(
-            f"Contacts/{contact_id}/addresses",
+            f"Contacts/{quote(str(contact_id), safe='')}/addresses",
             {"limit": limit, "offset": offset},
             result_limit=limit,
         )
 
     def get_contact_emails(self, contact_id, limit=50, offset=0):
         return self.get(
-            f"Contacts/{contact_id}/emailaddresses",
+            f"Contacts/{quote(str(contact_id), safe='')}/emailaddresses",
             {"limit": limit, "offset": offset},
             result_limit=limit,
         )
 
     def get_contact_phones(self, contact_id, limit=50, offset=0):
         return self.get(
-            f"Contacts/{contact_id}/phones",
+            f"Contacts/{quote(str(contact_id), safe='')}/phones",
             {"limit": limit, "offset": offset},
             result_limit=limit,
         )
 
     def get_contact_projects(self, contact_id, limit=50, offset=0):
         return self.get(
-            f"Contacts/{contact_id}/projects",
+            f"Contacts/{quote(str(contact_id), safe='')}/projects",
             {"limit": limit, "offset": offset},
             result_limit=limit,
         )
@@ -558,7 +684,7 @@ class FileVineClient:
         return self.get("Contacts/Countries")
 
     def remove_tag_from_contacts(self, tag_name):
-        return self.delete(f"Contacts/tags/{tag_name}")
+        return self.delete(f"Contacts/tags/{quote(str(tag_name), safe='')}")
 
     # ── Tasks ─────────────────────────────────────────────────────────────────
 
@@ -567,40 +693,44 @@ class FileVineClient:
 
     def list_project_tasks(self, project_id, limit=50, offset=0):
         return self.get(
-            f"projects/{project_id}/tasks",
+            f"projects/{quote(str(project_id), safe='')}/tasks",
             {"limit": limit, "offset": offset},
             result_limit=limit,
         )
 
     def get_task(self, task_id):
-        return self.get(f"tasks/{task_id}")
+        return self.get(f"tasks/{quote(str(task_id), safe='')}")
 
     def create_task(self, **fields):
         return self.post("tasks", fields)
 
     def update_task(self, task_id, **fields):
-        return self.patch(f"tasks/{task_id}", fields)
+        return self.patch(f"tasks/{quote(str(task_id), safe='')}", fields)
 
     def delete_task(self, task_id):
-        return self.delete(f"tasks/{task_id}")
+        return self.delete(f"tasks/{quote(str(task_id), safe='')}")
 
     def complete_task(self, task_id):
-        return self.post(f"tasks/{task_id}/complete")
+        return self.post(f"tasks/{quote(str(task_id), safe='')}/complete")
 
     def incomplete_task(self, task_id):
-        return self.post(f"tasks/{task_id}/incomplete")
+        return self.post(f"tasks/{quote(str(task_id), safe='')}/incomplete")
 
     def assign_task(self, task_id, assignee_id):
-        return self.patch(f"tasks/{task_id}/assign/{assignee_id}")
+        return self.patch(
+            f"tasks/{quote(str(task_id), safe='')}/assign/{quote(str(assignee_id), safe='')}"
+        )
 
     def pin_task(self, task_id):
-        return self.post(f"tasks/{task_id}/pin")
+        return self.post(f"tasks/{quote(str(task_id), safe='')}/pin")
 
     def unpin_task(self, task_id):
-        return self.post(f"tasks/{task_id}/unpin")
+        return self.post(f"tasks/{quote(str(task_id), safe='')}/unpin")
 
     def snooze_task(self, task_id, due_date):
-        return self.put(f"tasks/{task_id}/snooze", {"dueDate": due_date})
+        return self.put(
+            f"tasks/{quote(str(task_id), safe='')}/snooze", {"dueDate": due_date}
+        )
 
     # ── Notes ─────────────────────────────────────────────────────────────────
 
@@ -608,19 +738,19 @@ class FileVineClient:
         return self.get("Notes", {"offset": offset}, result_limit=limit)
 
     def get_note(self, note_id):
-        return self.get(f"Notes/{note_id}")
+        return self.get(f"Notes/{quote(str(note_id), safe='')}")
 
     def create_note(self, **fields):
         return self.post("Notes", fields)
 
     def update_note(self, note_id, **fields):
-        return self.patch(f"Notes/{note_id}", fields)
+        return self.patch(f"Notes/{quote(str(note_id), safe='')}", fields)
 
     def pin_note(self, note_id):
-        return self.post(f"Notes/{note_id}/pin")
+        return self.post(f"Notes/{quote(str(note_id), safe='')}/pin")
 
     def unpin_note(self, note_id):
-        return self.post(f"Notes/{note_id}/unpin")
+        return self.post(f"Notes/{quote(str(note_id), safe='')}/unpin")
 
     def list_note_comments(
         self,
@@ -630,7 +760,7 @@ class FileVineClient:
         order_by_descending=True,
     ):
         return self.get(
-            f"Notes/{note_id}/Comments",
+            f"Notes/{quote(str(note_id), safe='')}/Comments",
             {
                 "orderByDescending": order_by_descending,
                 "limit": limit,
@@ -640,16 +770,21 @@ class FileVineClient:
         )
 
     def get_note_comment(self, note_id, comment_id):
-        return self.get(f"Notes/{note_id}/Comments/{comment_id}")
+        return self.get(
+            f"Notes/{quote(str(note_id), safe='')}/Comments/{quote(str(comment_id), safe='')}"
+        )
 
     def create_note_comment(self, note_id, **fields):
-        return self.post(f"Notes/{note_id}/Comments", fields)
+        return self.post(f"Notes/{quote(str(note_id), safe='')}/Comments", fields)
 
     def update_note_comment(self, note_id, comment_id, **fields):
-        return self.patch(f"Notes/{note_id}/Comments/{comment_id}", fields)
+        return self.patch(
+            f"Notes/{quote(str(note_id), safe='')}/Comments/{quote(str(comment_id), safe='')}",
+            fields,
+        )
 
     def remove_tag_from_notes(self, tag_name):
-        return self.delete(f"Notes/tags/{tag_name}")
+        return self.delete(f"Notes/tags/{quote(str(tag_name), safe='')}")
 
     # ── Documents ─────────────────────────────────────────────────────────────
 
@@ -661,28 +796,30 @@ class FileVineClient:
         )
 
     def get_document(self, document_id):
-        return self.get(f"Documents/{document_id}")
+        return self.get(f"Documents/{quote(str(document_id), safe='')}")
 
     def create_document(self, **fields):
         return self.post("Documents", fields)
 
     def update_document(self, document_id, **fields):
-        return self.patch(f"Documents/{document_id}", fields)
+        return self.patch(f"Documents/{quote(str(document_id), safe='')}", fields)
 
     def delete_document(self, document_id):
-        return self.delete(f"Documents/{document_id}")
+        return self.delete(f"Documents/{quote(str(document_id), safe='')}")
 
     def get_document_download_locator(self, document_id):
-        return self.get(f"Documents/{document_id}/locator")
+        return self.get(f"Documents/{quote(str(document_id), safe='')}/locator")
 
     def add_document_revision(self, document_id, **fields):
-        return self.post(f"Documents/{document_id}/Revisions", fields)
+        return self.post(
+            f"Documents/{quote(str(document_id), safe='')}/Revisions", fields
+        )
 
     def lock_document(self, document_id):
-        return self.post(f"Documents/{document_id}/lock")
+        return self.post(f"Documents/{quote(str(document_id), safe='')}/lock")
 
     def unlock_document(self, document_id):
-        return self.post(f"Documents/{document_id}/unlock")
+        return self.post(f"Documents/{quote(str(document_id), safe='')}/unlock")
 
     def move_documents(self, document_ids: list, folder_id):
         return self.post(
@@ -716,10 +853,12 @@ class FileVineClient:
         )
 
     def add_document_to_project(self, project_id, document_id):
-        return self.post(f"Projects/{project_id}/Documents/{document_id}")
+        return self.post(
+            f"Projects/{quote(str(project_id), safe='')}/Documents/{quote(str(document_id), safe='')}"
+        )
 
     def remove_tag_from_documents(self, tag_name):
-        return self.delete(f"Documents/tags/{tag_name}")
+        return self.delete(f"Documents/tags/{quote(str(tag_name), safe='')}")
 
     # ── Folders ───────────────────────────────────────────────────────────────
 
@@ -742,16 +881,16 @@ class FileVineClient:
         )
 
     def get_folder(self, folder_id):
-        return self.get(f"Folders/{folder_id}")
+        return self.get(f"Folders/{quote(str(folder_id), safe='')}")
 
     def create_folder(self, **fields):
         return self.post("Folders", fields)
 
     def update_folder(self, folder_id, **fields):
-        return self.patch(f"Folders/{folder_id}", fields)
+        return self.patch(f"Folders/{quote(str(folder_id), safe='')}", fields)
 
     def delete_folder(self, folder_id):
-        return self.delete(f"Folders/{folder_id}")
+        return self.delete(f"Folders/{quote(str(folder_id), safe='')}")
 
     # ── Billing ───────────────────────────────────────────────────────────────
 
@@ -762,60 +901,79 @@ class FileVineClient:
         return self.get("Billing/org/Settings")
 
     def get_project_billing_vitals(self, project_id):
-        return self.get(f"Billing/projects/{project_id}/billingVitals")
+        return self.get(
+            f"Billing/projects/{quote(str(project_id), safe='')}/billingVitals"
+        )
 
     def get_project_billing_settings(self, project_id):
-        return self.get(f"Billing/projects/{project_id}/billingsettings")
+        return self.get(
+            f"Billing/projects/{quote(str(project_id), safe='')}/billingsettings"
+        )
 
     def get_project_billing_codes(self, project_id):
-        return self.get(f"Billing/{project_id}/AvailableBillingCodes")
+        return self.get(
+            f"Billing/{quote(str(project_id), safe='')}/AvailableBillingCodes"
+        )
 
     def get_project_transactions(self, project_id, limit=50, offset=0):
         return self.get(
-            f"Billing/projects/{project_id}/transactions",
+            f"Billing/projects/{quote(str(project_id), safe='')}/transactions",
             {"limit": limit, "offset": offset},
             result_limit=limit,
         )
 
     def get_project_funds(self, project_id):
-        return self.get(f"Billing/projects/{project_id}/funds")
+        return self.get(f"Billing/projects/{quote(str(project_id), safe='')}/funds")
 
     def get_project_fund_transactions(self, project_id, limit=50, offset=0):
         return self.get(
-            f"Billing/projects/{project_id}/fundslist",
+            f"Billing/projects/{quote(str(project_id), safe='')}/fundslist",
             {"limit": limit, "offset": offset},
             result_limit=limit,
         )
 
     def create_billing_item(self, project_id, **fields):
-        return self.post(f"projects/{project_id}/BillingItem", fields)
+        return self.post(
+            f"projects/{quote(str(project_id), safe='')}/BillingItem", fields
+        )
 
     def update_billing_item(self, project_id, billing_item_id, **fields):
-        return self.put(f"projects/{project_id}/BillingItem/{billing_item_id}", fields)
+        return self.put(
+            f"projects/{quote(str(project_id), safe='')}/BillingItem/{quote(str(billing_item_id), safe='')}",
+            fields,
+        )
 
     def delete_billing_item(self, billing_item_id):
-        return self.delete(f"Billing/Delete/BillingItem/{billing_item_id}")
+        return self.delete(
+            f"Billing/Delete/BillingItem/{quote(str(billing_item_id), safe='')}"
+        )
 
     def get_billing_item(self, project_id, billing_item_id):
         return self.get(
-            f"billing/projects/{project_id}/billing-items/{billing_item_id}"
+            f"billing/projects/{quote(str(project_id), safe='')}/billing-items/{quote(str(billing_item_id), safe='')}"
         )
 
     def create_payment(self, project_id, **fields):
-        return self.post(f"billing/projects/{project_id}/payment", fields)
+        return self.post(
+            f"billing/projects/{quote(str(project_id), safe='')}/payment", fields
+        )
 
     def create_payment_and_apply(self, project_id, **fields):
-        return self.post(f"billing/projects/{project_id}/payment/apply", fields)
+        return self.post(
+            f"billing/projects/{quote(str(project_id), safe='')}/payment/apply", fields
+        )
 
     def get_payment_link(self, project_id):
-        return self.get(f"billing/projects/{project_id}/payment-link")
+        return self.get(
+            f"billing/projects/{quote(str(project_id), safe='')}/payment-link"
+        )
 
     def get_org_rate_schedules(self):
         return self.get("Billing/org/rateschedules")
 
     def set_project_rate_schedule(self, project_id, rate_schedule_id):
         return self.put(
-            f"Billing/projects/{project_id}/rateschedule/{rate_schedule_id}"
+            f"Billing/projects/{quote(str(project_id), safe='')}/rateschedule/{quote(str(rate_schedule_id), safe='')}"
         )
 
     # ── Webhooks ──────────────────────────────────────────────────────────────
@@ -827,17 +985,21 @@ class FileVineClient:
         return self.get("webhooks/subscriptions")
 
     def get_webhook_subscription(self, subscription_id):
-        return self.get(f"webhooks/subscription/{subscription_id}")
+        return self.get(f"webhooks/subscription/{quote(str(subscription_id), safe='')}")
 
     def create_webhook_subscription(self, event_name, target_url, **fields):
         body = {"eventName": event_name, "targetUrl": target_url, **fields}
         return self.post("webhooks/subscription", body)
 
     def update_webhook_subscription(self, subscription_id, **fields):
-        return self.put(f"webhooks/subscription/{subscription_id}", fields)
+        return self.put(
+            f"webhooks/subscription/{quote(str(subscription_id), safe='')}", fields
+        )
 
     def delete_webhook_subscription(self, subscription_id):
-        return self.delete(f"webhooks/subscription/{subscription_id}")
+        return self.delete(
+            f"webhooks/subscription/{quote(str(subscription_id), safe='')}"
+        )
 
     # ── Project Types ─────────────────────────────────────────────────────────
 
@@ -849,7 +1011,7 @@ class FileVineClient:
         )
 
     def get_project_type(self, project_type_id):
-        return self.get(f"ProjectTypes/{project_type_id}")
+        return self.get(f"ProjectTypes/{quote(str(project_type_id), safe='')}")
 
     # ── Document Series ───────────────────────────────────────────────────────
 
@@ -861,7 +1023,7 @@ class FileVineClient:
         )
 
     def get_document_series(self, series_id):
-        return self.get(f"DocumentSeries/{series_id}")
+        return self.get(f"DocumentSeries/{quote(str(series_id), safe='')}")
 
     # ── Reports ───────────────────────────────────────────────────────────────
 
@@ -873,7 +1035,7 @@ class FileVineClient:
         )
 
     def get_report(self, report_id):
-        return self.get(f"Reports/{report_id}")
+        return self.get(f"Reports/{quote(str(report_id), safe='')}")
 
     # ── Share Links ───────────────────────────────────────────────────────────
 
@@ -884,13 +1046,13 @@ class FileVineClient:
         return self.get("ShareLinks", params, result_limit=limit)
 
     def get_share_link(self, link_id):
-        return self.get(f"ShareLinks/{link_id}")
+        return self.get(f"ShareLinks/{quote(str(link_id), safe='')}")
 
     def create_share_link(self, **fields):
         return self.post("ShareLinks", fields)
 
     def delete_share_link(self, link_id):
-        return self.delete(f"ShareLinks/{link_id}")
+        return self.delete(f"ShareLinks/{quote(str(link_id), safe='')}")
 
     # ── Mailroom ──────────────────────────────────────────────────────────────
 
@@ -906,16 +1068,16 @@ class FileVineClient:
         return self.get("teams")
 
     def get_team(self, team_id):
-        return self.get(f"teams/{team_id}")
+        return self.get(f"teams/{quote(str(team_id), safe='')}")
 
     def create_team(self, **fields):
         return self.post("teams", fields)
 
     def delete_team(self, team_id):
-        return self.delete(f"teams/{team_id}")
+        return self.delete(f"teams/{quote(str(team_id), safe='')}")
 
     def list_project_teams(self, project_id):
-        return self.get(f"projects/{project_id}/teams")
+        return self.get(f"projects/{quote(str(project_id), safe='')}/teams")
 
     # ── Recently Opened Documents ─────────────────────────────────────────────
 
@@ -934,4 +1096,6 @@ class FileVineClient:
     # ── Hashtags ──────────────────────────────────────────────────────────────
 
     def create_hashtag(self, hashtag, **fields):
-        return self.post(f"hashtags/{hashtag}", fields if fields else None)
+        return self.post(
+            f"hashtags/{quote(str(hashtag), safe='')}", fields if fields else None
+        )

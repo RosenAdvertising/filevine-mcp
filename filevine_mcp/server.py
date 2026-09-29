@@ -7,9 +7,10 @@ from functools import wraps
 from typing import Annotated, Literal
 
 from mcp.server import MCPServer
-from pydantic import Field
+from mcp.server.mcpserver.exceptions import ResourceError, ToolError
+from pydantic import Field, ValidationError
 
-from filevine_mcp.client import FileVineClient
+from filevine_mcp.client import FileVineClient, FilevineClientError
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,42 @@ ProjectSortBy = Literal[
 ]
 SortOrder = Literal["asc", "desc"]
 
-mcp = MCPServer(
+
+class SafeMCPServer(MCPServer):
+    """Sanitize errors raised before the registered function is called."""
+
+    async def call_tool(self, name, arguments, context=None):
+        try:
+            return await super().call_tool(name, arguments, context)
+        except ToolError as exc:
+            cause = exc.__cause__
+            tool = self._tool_manager.get_tool(name)
+            if isinstance(cause, ValidationError):
+                properties = tool.parameters.get("properties", {}) if tool else {}
+                for error in cause.errors(include_input=False, include_url=False):
+                    location = error.get("loc", ())
+                    field = location[0] if location else None
+                    if field in properties:
+                        spec = properties[field]
+                        expected = spec.get("type", "the documented shape")
+                        if "minimum" in spec:
+                            expected += f" greater than or equal to {spec['minimum']}"
+                        if "maximum" in spec:
+                            expected += f" and less than or equal to {spec['maximum']}"
+                        raise ToolError(
+                            f"Invalid argument '{field}'; expected {expected}."
+                        ) from None
+                raise ToolError(
+                    "Invalid arguments; use the documented input schema."
+                ) from None
+            if isinstance(cause, FilevineClientError):
+                raise ToolError(str(exc)) from None
+            raise ToolError(
+                "Filevine request failed unexpectedly. Check configuration and try again."
+            ) from None
+
+
+mcp = SafeMCPServer(
     "filevine",
     instructions=(
         "Filevine legal practice management. "
@@ -61,7 +97,14 @@ def _safe_tool(*args, **kwargs):
         def wrapped(*fn_args, **fn_kwargs):
             try:
                 return fn(*fn_args, **fn_kwargs)
+            except FilevineClientError:
+                raise
             except ValueError as e:
+                message = str(e)
+                if message == "FILEVINE_ORG_ID is required. Run filevine-mcp-setup.":
+                    safe_message = message
+                else:
+                    safe_message = "Invalid tool arguments. Check the supplied values."
                 logger.warning(
                     "Filevine tool call rejected",
                     extra={
@@ -70,7 +113,15 @@ def _safe_tool(*args, **kwargs):
                         "reason": "invalid_arguments",
                     },
                 )
-                return json.dumps({"error": str(e)})
+                raise FilevineClientError(safe_message) from None
+            except Exception:
+                logger.warning(
+                    "Filevine tool call failed",
+                    extra={"event": "tool_call_failed", "tool": fn.__name__},
+                )
+                raise FilevineClientError(
+                    "Filevine request failed unexpectedly. Check configuration and try again."
+                ) from None
 
         return _raw_tool(*args, **kwargs)(wrapped)
 
@@ -79,13 +130,40 @@ def _safe_tool(*args, **kwargs):
 
 mcp.tool = _safe_tool
 
+_raw_resource = mcp.resource
+
+
+def _safe_resource(*args, **kwargs):
+    def decorator(fn):
+        @wraps(fn)
+        def wrapped(*fn_args, **fn_kwargs):
+            try:
+                return fn(*fn_args, **fn_kwargs)
+            except FilevineClientError as e:
+                raise ResourceError(str(e)) from None
+            except Exception:
+                logger.warning(
+                    "Filevine resource read failed",
+                    extra={"event": "resource_read_failed", "resource": fn.__name__},
+                )
+                raise ResourceError(
+                    "Filevine resource could not be read. Check configuration and try again."
+                ) from None
+
+        return _raw_resource(*args, **kwargs)(wrapped)
+
+    return decorator
+
+
+mcp.resource = _safe_resource
+
 
 def _c():
     return FileVineClient()
 
 
 def _confirmation_required(tool: str, message: str) -> str:
-    """Return the existing gate response and emit a PII-free rejection event."""
+    """Raise a safe MCP tool error and emit a PII-free rejection event."""
     logger.warning(
         "Filevine tool call rejected",
         extra={
@@ -94,7 +172,7 @@ def _confirmation_required(tool: str, message: str) -> str:
             "reason": "confirmation_required",
         },
     )
-    return json.dumps({"error": message}, indent=2)
+    raise FilevineClientError(message)
 
 
 def _legacy_pagination(

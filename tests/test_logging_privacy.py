@@ -46,9 +46,8 @@ def test_every_confirmation_rejection_logs_a_pii_free_reason(
     args: tuple[str, ...],
 ) -> None:
     caplog.set_level(logging.WARNING)
-    result = getattr(server, tool_name)(*args)
-
-    assert "confirm=True" in result
+    with pytest.raises(Exception, match="confirm=True"):
+        getattr(server, tool_name)(*args)
     assert len(caplog.records) == 1
     record = caplog.records[0]
     assert getattr(record, "event") == "tool_call_rejected"
@@ -61,9 +60,8 @@ def test_argument_validation_log_omits_raw_fields_json(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.WARNING)
-    result = server.create_project(fields_json=f'{{"name":"{PII_MARKER}"')
-
-    assert "Invalid fields_json" in result
+    with pytest.raises(Exception, match="Invalid tool arguments"):
+        server.create_project(fields_json=f'{{"name":"{PII_MARKER}"')
     assert len(caplog.records) == 1
     record = caplog.records[0]
     assert getattr(record, "event") == "tool_call_rejected"
@@ -98,7 +96,7 @@ def test_api_error_never_includes_upstream_response_body() -> None:
     instance.tm = cast(TokenManager, FreshToken())
     instance.session = cast(client.requests.Session, FakeSession())
 
-    with pytest.raises(RuntimeError) as exc_info:
+    with pytest.raises(client.FilevineClientError) as exc_info:
         instance._request("GET", "Users/Me")
 
     assert "418" in str(exc_info.value)
@@ -112,7 +110,7 @@ def test_token_errors_never_include_identity_response_body(monkeypatch) -> None:
     monkeypatch.setattr(client.requests, "post", lambda *args, **kwargs: FakeResponse())
 
     manager = object.__new__(TokenManager)
-    with pytest.raises(RuntimeError) as exc_info:
+    with pytest.raises(client.FilevineClientError) as exc_info:
         manager.fetch()
 
     assert "418" in str(exc_info.value)

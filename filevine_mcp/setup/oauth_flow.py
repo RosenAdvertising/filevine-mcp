@@ -16,6 +16,7 @@ from pathlib import Path
 import requests
 
 from filevine_mcp import credentials
+from filevine_mcp.client import REQUEST_TIMEOUT, FilevineClientError, _json_response
 
 CONFIG_DIR = Path.home() / ".filevine-mcp"
 
@@ -60,21 +61,41 @@ def fetch_token(client_id, client_secret, identity_base, pat):
                 "openid email fv.auth.tenant.read filevine.v2.webhooks"
             ),
         },
-        timeout=5,
+        timeout=REQUEST_TIMEOUT,
     )
     if resp.status_code == 200:
-        return resp.json()
-    raise RuntimeError(f"Token request failed ({resp.status_code})")
+        return _json_response(resp)
+    if resp.status_code == 401:
+        raise FilevineClientError(
+            "Filevine rejected the credentials (401). Check the client ID, secret, and PAT."
+        )
+    if resp.status_code == 403:
+        raise FilevineClientError(
+            "Filevine access denied: the connected account lacks permission for this action (or the authorization expired; re-run filevine-mcp-setup if so)."
+        )
+    raise FilevineClientError(
+        f"Filevine token request failed with HTTP {resp.status_code}. Check credentials and region."
+    )
 
 
-def main():
+def _main():
     print("Filevine MCP Setup")
     print("==================")
     print("Filevine uses Personal Access Token (PAT) authentication.")
     print()
 
     print("Region options: us, ca, cjis")
-    region = prompt("Region", default="us").lower()
+    try:
+        region = prompt("Region", default="us").lower()
+        client_id = prompt("Client ID")
+        client_secret = prompt("Client Secret", secret=True)
+        pat = prompt("Personal Access Token (PAT)", secret=True)
+        org_id = prompt("Org ID (optional, press Enter to skip)", default="")
+    except EOFError:
+        print(
+            "✗ Setup input ended early. Re-run filevine-mcp-setup and provide the requested values."
+        )
+        sys.exit(1)
     if region not in REGIONS:
         print("Unknown region. Defaulting to 'us'.")
         region = "us"
@@ -82,14 +103,11 @@ def main():
     region_cfg = REGIONS[region]
     identity_base = region_cfg["identity"]
 
-    client_id = prompt("Client ID")
-    client_secret = prompt("Client Secret", secret=True)
-    while True:
-        pat = prompt("Personal Access Token (PAT)", secret=True)
-        if pat:
-            break
-        print("PAT cannot be empty. Please enter a valid token.")
-    org_id = prompt("Org ID (optional, press Enter to skip)", default="")
+    if not client_id or not client_secret or not pat:
+        print(
+            "✗ Client ID, Client Secret, and PAT are required. Re-run setup and provide all three."
+        )
+        sys.exit(1)
 
     print()
     print("Testing credentials...")
@@ -99,8 +117,13 @@ def main():
         tokens["expires_at"] = time.time() + expires_in
 
         print(f"✓ Token obtained. Expires in {expires_in}s.")
-    except RuntimeError as e:
+    except FilevineClientError as e:
         print(f"✗ Failed: {e}")
+        sys.exit(1)
+    except requests.RequestException:
+        print(
+            "✗ Filevine authorization request lost its connection; the outcome is unknown. Check whether authorization completed before retrying setup."
+        )
         sys.exit(1)
 
     backends = {
@@ -116,7 +139,15 @@ def main():
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
     token_file = CONFIG_DIR / "tokens.json"
-    token_file.write_text(json.dumps(tokens, indent=2))
+
+    def secure_open(path, flags):
+        fd = os.open(path, flags, 0o600)
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
+        return fd
+
+    with open(token_file, "w", opener=secure_open) as f:
+        f.write(json.dumps(tokens, indent=2))
     os.chmod(token_file, 0o600)
 
     print()
@@ -140,6 +171,14 @@ def main():
     print(
         json.dumps({"mcpServers": {"filevine": {"command": "filevine-mcp"}}}, indent=2)
     )
+
+
+def main():
+    try:
+        _main()
+    except Exception:
+        print("✗ Setup failed. Check configuration and retry filevine-mcp-setup.")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

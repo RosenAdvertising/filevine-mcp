@@ -43,10 +43,9 @@ The suite covers local protocol handling, bounded request construction, and
 sanitized diagnostics. It does not test a credentialed Filevine account,
 deployed transport, or every platform selected by lockfile markers.
 
-## Open product decision
+## Error behavior
 
-MCP 2.2.0 masks messages from tool exceptions other than `ToolError` or
-`ResourceError`. Retaining that masking limits leakage; raising explicitly
-safe `ToolError` messages could give clients more actionable feedback. Toby
-should choose the desired policy. Existing tool exception handling is
-unchanged by this documentation cleanup.
+Expected Filevine request failures are returned as MCP tool errors with safe,
+actionable client messages. Unexpected tool failures use a fixed masked message;
+exception text, vendor response prose, request URLs, credentials, and argument
+values are not included. Resource read failures use the same safe boundary.
