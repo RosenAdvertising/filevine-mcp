@@ -2,6 +2,7 @@
 
 import asyncio
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 import requests
@@ -37,8 +38,8 @@ class Session:
         return result
 
 
-def make_client(session):
-    instance = client.FileVineClient.__new__(client.FileVineClient)
+def make_client(session) -> Any:
+    instance = cast(Any, client.FileVineClient.__new__(client.FileVineClient))
     instance.tm = type(
         "Tokens",
         (),
