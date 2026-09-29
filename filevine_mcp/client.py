@@ -124,7 +124,10 @@ class TokenManager:
         if not CLIENT_ID or not CLIENT_SECRET:
             logger.warning(
                 "Filevine request rejected",
-                extra={"event": "request_rejected", "reason": "missing_client_credentials"},
+                extra={
+                    "event": "request_rejected",
+                    "reason": "missing_client_credentials",
+                },
             )
             raise RuntimeError(
                 "FILEVINE_CLIENT_ID and FILEVINE_CLIENT_SECRET are required. Run: filevine-mcp-setup"
@@ -236,9 +239,7 @@ class FileVineClient:
         )
 
     def get(self, path, params=None, *, result_limit=None):
-        return self._request(
-            "GET", path, params=params, result_limit=result_limit
-        )
+        return self._request("GET", path, params=params, result_limit=result_limit)
 
     def post(self, path, body=None):
         return self._request("POST", path, json_body=body)
@@ -562,9 +563,7 @@ class FileVineClient:
     # ── Tasks ─────────────────────────────────────────────────────────────────
 
     def list_tasks(self, limit=50, offset=0):
-        return self.get(
-            "tasks", {"offset": offset}, result_limit=limit
-        )
+        return self.get("tasks", {"offset": offset}, result_limit=limit)
 
     def list_project_tasks(self, project_id, limit=50, offset=0):
         return self.get(
@@ -896,9 +895,7 @@ class FileVineClient:
     # ── Mailroom ──────────────────────────────────────────────────────────────
 
     def list_mailroom(self, limit=50, offset=0):
-        return self.get(
-            "Mailroom/Items", {"offset": offset}, result_limit=limit
-        )
+        return self.get("Mailroom/Items", {"offset": offset}, result_limit=limit)
 
     def create_mailroom_item(self, **fields):
         return self.post("Mailroom/Items/Assign", fields)

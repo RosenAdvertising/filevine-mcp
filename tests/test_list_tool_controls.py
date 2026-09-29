@@ -64,9 +64,7 @@ def test_every_named_list_tool_is_classified_and_paginated_ones_are_bounded() ->
     discovered = {name for name in schemas if name.startswith("list_")}
     assert discovered == PAGINATED_LIST_TOOLS | FINITE_LIST_TOOLS
 
-    for name in PAGINATED_LIST_TOOLS | SEMANTIC_COLLECTION_TOOLS | {
-        "search_documents"
-    }:
+    for name in PAGINATED_LIST_TOOLS | SEMANTIC_COLLECTION_TOOLS | {"search_documents"}:
         limit = schemas[name]["properties"]["limit"]
         assert limit["minimum"] == 1, name
         assert limit["maximum"] == 200, name
@@ -232,7 +230,9 @@ def test_search_documents_uses_required_vendor_names_and_project_scope() -> None
         ({"data": {"items": list(range(5))}}, {"data": {"items": [0, 1]}}),
     ],
 )
-def test_collection_envelopes_never_exceed_the_requested_limit(payload, expected) -> None:
+def test_collection_envelopes_never_exceed_the_requested_limit(
+    payload, expected
+) -> None:
     assert _cap_collection(payload, 2) == expected
 
 

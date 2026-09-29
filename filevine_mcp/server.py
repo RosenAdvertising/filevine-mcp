@@ -105,9 +105,7 @@ def _legacy_pagination(
 ) -> tuple[int, int]:
     """Translate retained page/page_size arguments to Filevine limit/offset."""
     effective_limit = page_size if page_size is not None else limit
-    effective_offset = (
-        (page - 1) * effective_limit if page is not None else offset
-    )
+    effective_offset = (page - 1) * effective_limit if page is not None else offset
     return effective_limit, effective_offset
 
 
@@ -377,9 +375,7 @@ def list_collection_items(
     """List items in a custom collection section of a project."""
     limit, offset = _legacy_pagination(limit, offset, page, page_size)
     return json.dumps(
-        _c().list_collection_items(
-            project_id, selector, limit=limit, offset=offset
-        ),
+        _c().list_collection_items(project_id, selector, limit=limit, offset=offset),
         indent=2,
     )
 
@@ -1406,9 +1402,7 @@ def get_project_fund_transactions(
 ) -> str:
     """Get trust/retainer fund transaction history for a project."""
     return json.dumps(
-        _c().get_project_fund_transactions(
-            project_id, limit=limit, offset=offset
-        ),
+        _c().get_project_fund_transactions(project_id, limit=limit, offset=offset),
         indent=2,
     )
 
@@ -1640,9 +1634,7 @@ def delete_webhook_subscription(subscription_id: str, confirm: bool = False) -> 
 @mcp.tool()
 def list_project_types(limit: ListLimit = 50, offset: ListOffset = 0) -> str:
     """List all project (matter) types configured in the organisation."""
-    return json.dumps(
-        _c().list_project_types(limit=limit, offset=offset), indent=2
-    )
+    return json.dumps(_c().list_project_types(limit=limit, offset=offset), indent=2)
 
 
 @mcp.tool()
@@ -1655,13 +1647,9 @@ def get_project_type(project_type_id: str) -> str:
 
 
 @mcp.tool()
-def list_document_series(
-    limit: ListLimit = 50, last_id: ListOffset = 0
-) -> str:
+def list_document_series(limit: ListLimit = 50, last_id: ListOffset = 0) -> str:
     """List all document series templates."""
-    return json.dumps(
-        _c().list_document_series(limit=limit, last_id=last_id), indent=2
-    )
+    return json.dumps(_c().list_document_series(limit=limit, last_id=last_id), indent=2)
 
 
 @mcp.tool()
@@ -1691,9 +1679,7 @@ def get_report(report_id: str) -> str:
 @mcp.tool()
 def list_share_links(limit: ListLimit = 50, last_key: str = "") -> str:
     """List all document share links."""
-    return json.dumps(
-        _c().list_share_links(limit=limit, last_key=last_key), indent=2
-    )
+    return json.dumps(_c().list_share_links(limit=limit, last_key=last_key), indent=2)
 
 
 @mcp.tool()
