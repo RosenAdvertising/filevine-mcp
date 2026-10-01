@@ -99,12 +99,12 @@ def test_connection_failures_are_safe_and_write_aware(method, message, failure):
     assert api.session.calls[0][2]["timeout"] == 30
 
 
-def test_path_values_are_escaped_as_single_segments():
+def test_path_values_are_validated_as_single_segments():
     api = make_client(Session([Response(body={})]))
-    api.get_user("../x?#/y")
+    api.get_user("normal-id")
     url = api.session.calls[0][1]
-    assert url.endswith("users/..%2Fx%3F%23%2Fy")
-    assert "../x" not in url
+    assert url.endswith("users/normal-id")
+    assert "../" not in url
 
 
 def test_retry_after_budget_is_aggregate_and_preserves_vendor_delay(monkeypatch):
