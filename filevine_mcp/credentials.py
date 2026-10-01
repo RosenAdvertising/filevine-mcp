@@ -29,6 +29,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from filevine_mcp.private_file import write_private_file
+
 # --- per-MCP configuration --------------------------------------------------
 SERVICE_NAME = "filevine-mcp"
 CONFIG_DIR = Path.home() / ".filevine-mcp"
@@ -98,15 +100,7 @@ def _write_env_file(values: dict[str, str]) -> None:
     except OSError:
         pass
     lines = [f"{k}={v}" for k, v in values.items()]
-    fd = os.open(ENV_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as env_file:
-        if hasattr(os, "fchmod"):
-            os.fchmod(env_file.fileno(), 0o600)
-        env_file.write("\n".join(lines) + ("\n" if lines else ""))
-    try:
-        ENV_FILE.chmod(0o600)
-    except OSError:
-        pass
+    write_private_file(ENV_FILE, "\n".join(lines) + ("\n" if lines else ""))
 
 
 def get_secret(key: str, default: str = "") -> str:

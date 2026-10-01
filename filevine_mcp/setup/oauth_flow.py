@@ -90,7 +90,7 @@ def _main():
 
     print("Region options: us, ca, cjis")
     try:
-        region = prompt("Region", default="us").lower()
+        region = prompt("Region", default="us").strip().lower()
         client_id = prompt("Client ID")
         client_secret = prompt("Client Secret", secret=True)
         pat = prompt("Personal Access Token (PAT)", secret=True)
@@ -100,11 +100,13 @@ def _main():
             "✗ Setup input ended early. Re-run filevine-mcp-setup and provide the requested values."
         )
         sys.exit(1)
-    if region not in REGIONS:
-        print("Unknown region. Defaulting to 'us'.")
-        region = "us"
+    from filevine_mcp.regions import region_config
 
-    region_cfg = REGIONS[region]
+    try:
+        region_cfg = region_config(region, REGIONS)
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
     identity_base = region_cfg["identity"]
 
     if not client_id or not client_secret or not pat:

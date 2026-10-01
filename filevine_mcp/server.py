@@ -11,6 +11,7 @@ from mcp.server.mcpserver.exceptions import ResourceError, ToolError
 from pydantic import Field, ValidationError
 
 from filevine_mcp.client import FileVineClient, FilevineClientError
+from filevine_mcp.url_security import UnsafeURL, validate_public_https
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,11 @@ def _safe_tool(*args, **kwargs):
                 return fn(*fn_args, **fn_kwargs)
             except FilevineClientError:
                 raise
+            except UnsafeURL:
+                raise FilevineClientError(
+                    "Destination must be a public HTTPS URL approved by "
+                    "FILEVINE_ALLOWED_DESTINATION_HOSTS; configure trusted hostnames."
+                ) from None
             except ValueError as e:
                 message = str(e)
                 if message == "FILEVINE_ORG_ID is required. Run filevine-mcp-setup.":
@@ -1671,6 +1677,10 @@ def create_webhook_subscription(
 ) -> str:
     """Create a webhook subscription for a Filevine event."""
     data = _fields(fields_json)
+    from filevine_mcp.client import _validate_webhook_fields
+
+    _validate_webhook_fields(data)
+    validate_public_https(target_url)
     return json.dumps(
         _c().create_webhook_subscription(event_name, target_url, **data), indent=2
     )
@@ -1684,7 +1694,11 @@ def update_webhook_subscription(
 ) -> str:
     """Update a webhook subscription."""
     data = _fields(fields_json)
+    from filevine_mcp.client import _validate_webhook_fields
+
+    _validate_webhook_fields(data)
     if target_url:
+        validate_public_https(target_url)
         data["targetUrl"] = target_url
     return json.dumps(
         _c().update_webhook_subscription(subscription_id, **data), indent=2

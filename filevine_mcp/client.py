@@ -17,6 +17,8 @@ import requests
 from mcp.server.mcpserver.exceptions import ToolError
 
 from filevine_mcp import credentials
+from filevine_mcp.regions import region_config
+from filevine_mcp.url_security import validate_public_https
 
 logger = logging.getLogger(__name__)
 
@@ -52,10 +54,10 @@ credentials.load_into_environ(
 CLIENT_ID = os.environ.get("FILEVINE_CLIENT_ID", "")
 CLIENT_SECRET = os.environ.get("FILEVINE_CLIENT_SECRET", "")
 ORG_ID = os.environ.get("FILEVINE_ORG_ID", "")
-REGION = os.environ.get("FILEVINE_REGION", "us").lower()
+REGION = os.environ.get("FILEVINE_REGION", "us").strip().lower()
 FILEVINE_PAT = os.environ.get("FILEVINE_PAT", "")
 
-_region_cfg = REGIONS.get(REGION, REGIONS["us"])
+_region_cfg = region_config(REGION, REGIONS)
 BASE_URL = _region_cfg["api"]
 IDENTITY_URL = _region_cfg["identity"]
 TOKEN_URL = f"{IDENTITY_URL}/connect/token"
@@ -1051,10 +1053,15 @@ class FileVineClient:
         )
 
     def create_webhook_subscription(self, event_name, target_url, **fields):
-        body = {"eventName": event_name, "targetUrl": target_url, **fields}
+        validate_public_https(target_url)
+        _validate_webhook_fields(fields)
+        body = {**fields, "eventName": event_name, "targetUrl": target_url}
         return self.post("webhooks/subscription", body)
 
     def update_webhook_subscription(self, subscription_id, **fields):
+        _validate_webhook_fields({k: v for k, v in fields.items() if k != "targetUrl"})
+        if "targetUrl" in fields:
+            validate_public_https(fields["targetUrl"])
         return self.put(
             f"webhooks/subscription/{_path_id(subscription_id, 'subscription_id')}",
             fields,
@@ -1163,3 +1170,42 @@ class FileVineClient:
         return self.post(
             f"hashtags/{_path_id(hashtag, 'hashtag')}", fields if fields else None
         )
+
+
+# Exact aliases after case/separator normalization, including nested JSON values.
+DESTINATION_KEYS = frozenset(
+    {
+        "url",
+        "uri",
+        "targeturl",
+        "targeturi",
+        "callbackurl",
+        "callbackuri",
+        "baseurl",
+        "baseurlpattern",
+        "webhookurl",
+        "webhookuri",
+        "destinationurl",
+        "destinationuri",
+        "redirecturl",
+        "redirecturi",
+        "endpointurl",
+        "endpointuri",
+        "uploadurl",
+        "storageurl",
+        "pluginurl",
+    }
+)
+
+
+def _validate_webhook_fields(fields):
+    """Validate explicit destination aliases recursively without substring matching."""
+    if isinstance(fields, dict):
+        for key, value in fields.items():
+            normalized = key.lower().replace("_", "").replace("-", "")
+            if normalized in DESTINATION_KEYS:
+                validate_public_https(value)
+            _validate_webhook_fields(value)
+    elif isinstance(fields, list):
+        for value in fields:
+            _validate_webhook_fields(value)
