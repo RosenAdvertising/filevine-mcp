@@ -95,10 +95,11 @@ def _read_env_file() -> dict[str, str]:
 def _write_env_file(values: dict[str, str]) -> None:
     """Write the fallback ``.env`` file with 0600 perms in a 0700 dir."""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    try:
-        CONFIG_DIR.chmod(0o700)
-    except OSError:
-        pass
+    if os.name != "nt":
+        try:
+            CONFIG_DIR.chmod(0o700)
+        except OSError:
+            pass
     lines = [f"{k}={v}" for k, v in values.items()]
     write_private_file(ENV_FILE, "\n".join(lines) + ("\n" if lines else ""))
 

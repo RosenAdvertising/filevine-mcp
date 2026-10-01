@@ -8,7 +8,6 @@ available or ``FILEVINE_MCP_USE_KEYRING=0`` is set.
 """
 
 import json
-import os
 import sys
 import time
 from pathlib import Path
@@ -21,6 +20,8 @@ from filevine_mcp.client import (
     FilevineClientError,
     _token_response,
 )
+
+from filevine_mcp.private_file import write_private_file
 
 CONFIG_DIR = Path.home() / ".filevine-mcp"
 
@@ -146,15 +147,7 @@ def _main():
 
     token_file = CONFIG_DIR / "tokens.json"
 
-    def secure_open(path, flags):
-        fd = os.open(path, flags, 0o600)
-        if hasattr(os, "fchmod"):
-            os.fchmod(fd, 0o600)
-        return fd
-
-    with open(token_file, "w", opener=secure_open) as f:
-        f.write(json.dumps(tokens, indent=2))
-    os.chmod(token_file, 0o600)
+    write_private_file(token_file, json.dumps(tokens, indent=2))
 
     print()
     backend_set = set(backends.values())

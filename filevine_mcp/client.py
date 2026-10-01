@@ -20,6 +20,8 @@ from filevine_mcp import credentials
 from filevine_mcp.regions import region_config
 from filevine_mcp.url_security import validate_public_https
 
+from filevine_mcp.private_file import write_private_file
+
 logger = logging.getLogger(__name__)
 
 REGIONS = {
@@ -174,18 +176,8 @@ class TokenManager:
         return {}
 
     def save(self, tokens):
+        write_private_file(self.token_file, json.dumps(tokens, indent=2))
         self.tokens = tokens
-        self.token_file.parent.mkdir(parents=True, exist_ok=True)
-
-        def secure_open(path, flags):
-            fd = os.open(path, flags, 0o600)
-            if hasattr(os, "fchmod"):
-                os.fchmod(fd, 0o600)
-            return fd
-
-        with open(self.token_file, "w", opener=secure_open) as f:
-            json.dump(tokens, f, indent=2)
-        os.chmod(self.token_file, 0o600)
 
     @property
     def access_token(self):
