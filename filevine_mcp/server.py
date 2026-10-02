@@ -1,12 +1,86 @@
 #!/usr/bin/env python3
-"""Filevine MCP server — FastMCP tools for the Filevine API."""
+"""Filevine MCP server — MCP tools for the Filevine API."""
 
 import json
+import logging
 from functools import wraps
-from mcp.server.fastmcp import FastMCP
-from filevine_mcp.client import FileVineClient
+from typing import Annotated, Literal
 
-mcp = FastMCP(
+from mcp.server import MCPServer
+from mcp.server.mcpserver.exceptions import ResourceError, ToolError
+from pydantic import Field, ValidationError
+
+from filevine_mcp.client import FileVineClient, FilevineClientError
+from filevine_mcp.url_security import UnsafeURL, validate_public_https
+
+logger = logging.getLogger(__name__)
+
+ListLimit = Annotated[
+    int,
+    Field(
+        ge=1,
+        le=200,
+        description="Maximum number of records returned across the API response.",
+    ),
+]
+ListOffset = Annotated[
+    int,
+    Field(ge=0, description="Zero-based record offset for Filevine pagination."),
+]
+LegacyPage = Annotated[int, Field(ge=1)]
+ProjectSortBy = Literal[
+    "projectOrClientName",
+    "projectName",
+    "clientName",
+    "phaseName",
+    "phaseDate",
+    "phaseId",
+    "lastActivity",
+    "createdDate",
+    "projectId",
+    "projectTypeId",
+    "clientId",
+    "firstPrimaryName",
+    "firstPrimaryUsername",
+]
+SortOrder = Literal["asc", "desc"]
+
+
+class SafeMCPServer(MCPServer):
+    """Sanitize errors raised before the registered function is called."""
+
+    async def call_tool(self, name, arguments, context=None):
+        try:
+            return await super().call_tool(name, arguments, context)
+        except ToolError as exc:
+            cause = exc.__cause__
+            tool = self._tool_manager.get_tool(name)
+            if isinstance(cause, ValidationError):
+                properties = tool.parameters.get("properties", {}) if tool else {}
+                for error in cause.errors(include_input=False, include_url=False):
+                    location = error.get("loc", ())
+                    field = location[0] if location else None
+                    if field in properties:
+                        spec = properties[field]
+                        expected = spec.get("type", "the documented shape")
+                        if "minimum" in spec:
+                            expected += f" greater than or equal to {spec['minimum']}"
+                        if "maximum" in spec:
+                            expected += f" and less than or equal to {spec['maximum']}"
+                        raise ToolError(
+                            f"Invalid argument '{field}'; expected {expected}."
+                        ) from None
+                raise ToolError(
+                    "Invalid arguments; use the documented input schema."
+                ) from None
+            if isinstance(cause, FilevineClientError):
+                raise ToolError(str(exc)) from None
+            raise ToolError(
+                "Filevine request failed unexpectedly. Check configuration and try again."
+            ) from None
+
+
+mcp = SafeMCPServer(
     "filevine",
     instructions=(
         "Filevine legal practice management. "
@@ -24,8 +98,36 @@ def _safe_tool(*args, **kwargs):
         def wrapped(*fn_args, **fn_kwargs):
             try:
                 return fn(*fn_args, **fn_kwargs)
+            except FilevineClientError:
+                raise
+            except UnsafeURL:
+                raise FilevineClientError(
+                    "Destination must be a public HTTPS URL approved by "
+                    "FILEVINE_ALLOWED_DESTINATION_HOSTS; configure trusted hostnames."
+                ) from None
             except ValueError as e:
-                return json.dumps({"error": str(e)})
+                message = str(e)
+                if message == "FILEVINE_ORG_ID is required. Run filevine-mcp-setup.":
+                    safe_message = message
+                else:
+                    safe_message = "Invalid tool arguments. Check the supplied values."
+                logger.warning(
+                    "Filevine tool call rejected",
+                    extra={
+                        "event": "tool_call_rejected",
+                        "tool": fn.__name__,
+                        "reason": "invalid_arguments",
+                    },
+                )
+                raise FilevineClientError(safe_message) from None
+            except Exception:
+                logger.warning(
+                    "Filevine tool call failed",
+                    extra={"event": "tool_call_failed", "tool": fn.__name__},
+                )
+                raise FilevineClientError(
+                    "Filevine request failed unexpectedly. Check configuration and try again."
+                ) from None
 
         return _raw_tool(*args, **kwargs)(wrapped)
 
@@ -34,9 +136,61 @@ def _safe_tool(*args, **kwargs):
 
 mcp.tool = _safe_tool
 
+_raw_resource = mcp.resource
+
+
+def _safe_resource(*args, **kwargs):
+    def decorator(fn):
+        @wraps(fn)
+        def wrapped(*fn_args, **fn_kwargs):
+            try:
+                return fn(*fn_args, **fn_kwargs)
+            except FilevineClientError as e:
+                raise ResourceError(str(e)) from None
+            except Exception:
+                logger.warning(
+                    "Filevine resource read failed",
+                    extra={"event": "resource_read_failed", "resource": fn.__name__},
+                )
+                raise ResourceError(
+                    "Filevine resource could not be read. Check configuration and try again."
+                ) from None
+
+        return _raw_resource(*args, **kwargs)(wrapped)
+
+    return decorator
+
+
+mcp.resource = _safe_resource
+
 
 def _c():
     return FileVineClient()
+
+
+def _confirmation_required(tool: str, message: str) -> str:
+    """Raise a safe MCP tool error and emit a PII-free rejection event."""
+    logger.warning(
+        "Filevine tool call rejected",
+        extra={
+            "event": "tool_call_rejected",
+            "tool": tool,
+            "reason": "confirmation_required",
+        },
+    )
+    raise FilevineClientError(message)
+
+
+def _legacy_pagination(
+    limit: int,
+    offset: int,
+    page: int | None,
+    page_size: int | None,
+) -> tuple[int, int]:
+    """Translate retained page/page_size arguments to Filevine limit/offset."""
+    effective_limit = page_size if page_size is not None else limit
+    effective_offset = (page - 1) * effective_limit if page is not None else offset
+    return effective_limit, effective_offset
 
 
 def _fields(fields_json: str) -> dict:
@@ -61,9 +215,9 @@ def get_current_user() -> str:
 
 
 @mcp.tool()
-def list_users() -> str:
+def list_users(limit: ListLimit = 50, offset: ListOffset = 0) -> str:
     """List all users in the organisation."""
-    return json.dumps(_c().list_users(), indent=2)
+    return json.dumps(_c().list_users(limit=limit, offset=offset), indent=2)
 
 
 @mcp.tool()
@@ -73,15 +227,28 @@ def get_user(user_id: str) -> str:
 
 
 @mcp.tool()
-def get_user_tasks(user_id: str, page: int = 1, page_size: int = 50) -> str:
+def get_user_tasks(
+    user_id: str,
+    limit: ListLimit = 50,
+    offset: ListOffset = 0,
+    page: LegacyPage | None = None,
+    page_size: ListLimit | None = None,
+) -> str:
     """Get tasks assigned to a user."""
-    return json.dumps(_c().get_user_tasks(user_id, page, page_size), indent=2)
+    limit, offset = _legacy_pagination(limit, offset, page, page_size)
+    return json.dumps(
+        _c().get_user_tasks(user_id, limit=limit, offset=offset), indent=2
+    )
 
 
 @mcp.tool()
-def get_user_appointments(user_id: str) -> str:
+def get_user_appointments(
+    user_id: str, limit: ListLimit = 50, offset: ListOffset = 0
+) -> str:
     """Get appointments for a user."""
-    return json.dumps(_c().get_user_appointments(user_id), indent=2)
+    return json.dumps(
+        _c().get_user_appointments(user_id, limit=limit, offset=offset), indent=2
+    )
 
 
 @mcp.tool()
@@ -91,18 +258,38 @@ def get_user_recent_projects(user_id: str) -> str:
 
 
 @mcp.tool()
-def get_user_project_access(user_id: str) -> str:
+def get_user_project_access(
+    user_id: str, limit: ListLimit = 50, offset: ListOffset = 0
+) -> str:
     """Get the list of projects a user has access to."""
-    return json.dumps(_c().get_user_project_access(user_id), indent=2)
+    return json.dumps(
+        _c().get_user_project_access(user_id, limit=limit, offset=offset), indent=2
+    )
 
 
 # ── Projects (Matters) ─────────────────────────────────────────────────────────
 
 
 @mcp.tool()
-def list_projects(page: int = 1, page_size: int = 50) -> str:
-    """List all projects (matters)."""
-    return json.dumps(_c().list_projects(page, page_size), indent=2)
+def list_projects(
+    limit: ListLimit = 50,
+    offset: ListOffset = 0,
+    sort_by: ProjectSortBy = "projectId",
+    order_by: SortOrder = "desc",
+    page: LegacyPage | None = None,
+    page_size: ListLimit | None = None,
+) -> str:
+    """List projects with a true total cap and caller-controlled ordering."""
+    limit, offset = _legacy_pagination(limit, offset, page, page_size)
+    return json.dumps(
+        _c().list_projects(
+            limit=limit,
+            offset=offset,
+            sort_by=sort_by,
+            order_by=order_by,
+        ),
+        indent=2,
+    )
 
 
 @mcp.tool()
@@ -156,11 +343,9 @@ def archive_project(project_id: str, confirm: bool = False) -> str:
     Confirm with the user before calling this tool with confirm=True.
     """
     if not confirm:
-        return json.dumps(
-            {
-                "error": "archive_project requires confirm=True. Confirm this action with the user before proceeding."
-            },
-            indent=2,
+        return _confirmation_required(
+            "archive_project",
+            "archive_project requires confirm=True. Confirm this action with the user before proceeding.",
         )
     return json.dumps(_c().archive_project(project_id), indent=2)
 
@@ -188,9 +373,24 @@ def update_project_form(project_id: str, selector: str, fields_json: str) -> str
 
 
 @mcp.tool()
-def get_project_contacts(project_id: str) -> str:
+def get_project_contacts(
+    project_id: str,
+    limit: ListLimit = 50,
+    offset: ListOffset = 0,
+    sort_by: str = "",
+    order_by: SortOrder = "desc",
+) -> str:
     """Get all contacts associated with a project."""
-    return json.dumps(_c().get_project_contacts(project_id), indent=2)
+    return json.dumps(
+        _c().get_project_contacts(
+            project_id,
+            limit=limit,
+            offset=offset,
+            sort_by=sort_by,
+            order_by=order_by,
+        ),
+        indent=2,
+    )
 
 
 @mcp.tool()
@@ -235,11 +435,9 @@ def remove_contact_from_project(
     Confirm with the user before calling this tool with confirm=True.
     """
     if not confirm:
-        return json.dumps(
-            {
-                "error": "remove_contact_from_project requires confirm=True. Confirm this action with the user before proceeding."
-            },
-            indent=2,
+        return _confirmation_required(
+            "remove_contact_from_project",
+            "remove_contact_from_project requires confirm=True. Confirm this action with the user before proceeding.",
         )
     return json.dumps(
         _c().remove_contact_from_project(project_id, project_contact_id), indent=2
@@ -253,12 +451,16 @@ def remove_contact_from_project(
 def list_collection_items(
     project_id: str,
     selector: str,
-    page: int = 1,
-    page_size: int = 50,
+    limit: ListLimit = 50,
+    offset: ListOffset = 0,
+    page: LegacyPage | None = None,
+    page_size: ListLimit | None = None,
 ) -> str:
     """List items in a custom collection section of a project."""
+    limit, offset = _legacy_pagination(limit, offset, page, page_size)
     return json.dumps(
-        _c().list_collection_items(project_id, selector, page, page_size), indent=2
+        _c().list_collection_items(project_id, selector, limit=limit, offset=offset),
+        indent=2,
     )
 
 
@@ -303,11 +505,9 @@ def delete_collection_item(
     Confirm with the user before calling this tool with confirm=True.
     """
     if not confirm:
-        return json.dumps(
-            {
-                "error": "delete_collection_item requires confirm=True. Confirm this action with the user before proceeding."
-            },
-            indent=2,
+        return _confirmation_required(
+            "delete_collection_item",
+            "delete_collection_item requires confirm=True. Confirm this action with the user before proceeding.",
         )
     return json.dumps(
         _c().delete_collection_item(project_id, selector, unique_id), indent=2
@@ -318,9 +518,24 @@ def delete_collection_item(
 
 
 @mcp.tool()
-def get_project_team(project_id: str) -> str:
+def get_project_team(
+    project_id: str,
+    limit: ListLimit = 50,
+    offset: ListOffset = 0,
+    sort_by: str = "",
+    order_by: SortOrder = "desc",
+) -> str:
     """Get the team members assigned to a project."""
-    return json.dumps(_c().get_project_team(project_id), indent=2)
+    return json.dumps(
+        _c().get_project_team(
+            project_id,
+            limit=limit,
+            offset=offset,
+            sort_by=sort_by,
+            order_by=order_by,
+        ),
+        indent=2,
+    )
 
 
 @mcp.tool()
@@ -359,11 +574,9 @@ def remove_project_team_member(
     Confirm with the user before calling this tool with confirm=True.
     """
     if not confirm:
-        return json.dumps(
-            {
-                "error": "remove_project_team_member requires confirm=True. Confirm this action with the user before proceeding."
-            },
-            indent=2,
+        return _confirmation_required(
+            "remove_project_team_member",
+            "remove_project_team_member requires confirm=True. Confirm this action with the user before proceeding.",
         )
     return json.dumps(_c().remove_project_team_member(project_id, user_id), indent=2)
 
@@ -372,9 +585,14 @@ def remove_project_team_member(
 
 
 @mcp.tool()
-def list_project_appointments(project_id: str) -> str:
+def list_project_appointments(
+    project_id: str, limit: ListLimit = 50, offset: ListOffset = 0
+) -> str:
     """List all appointments for a project."""
-    return json.dumps(_c().list_project_appointments(project_id), indent=2)
+    return json.dumps(
+        _c().list_project_appointments(project_id, limit=limit, offset=offset),
+        indent=2,
+    )
 
 
 @mcp.tool()
@@ -400,9 +618,13 @@ def create_project_appointment(
 
 
 @mcp.tool()
-def list_project_notes(project_id: str) -> str:
+def list_project_notes(
+    project_id: str, limit: ListLimit = 50, offset: ListOffset = 0
+) -> str:
     """List all notes on a project."""
-    return json.dumps(_c().list_project_notes(project_id), indent=2)
+    return json.dumps(
+        _c().list_project_notes(project_id, limit=limit, offset=offset), indent=2
+    )
 
 
 @mcp.tool()
@@ -421,9 +643,14 @@ def unpin_note_from_project(project_id: str, note_id: str) -> str:
 
 
 @mcp.tool()
-def list_project_deadlines(project_id: str) -> str:
+def list_project_deadlines(
+    project_id: str, limit: ListLimit = 50, offset: ListOffset = 0
+) -> str:
     """List all deadlines for a project."""
-    return json.dumps(_c().list_project_deadlines(project_id), indent=2)
+    return json.dumps(
+        _c().list_project_deadlines(project_id, limit=limit, offset=offset),
+        indent=2,
+    )
 
 
 @mcp.tool()
@@ -477,9 +704,13 @@ def delete_project_deadline(project_id: str, deadline_id: str) -> str:
 
 
 @mcp.tool()
-def list_project_emails(project_id: str) -> str:
+def list_project_emails(
+    project_id: str, limit: ListLimit = 50, offset: ListOffset = 0
+) -> str:
     """List emails associated with a project."""
-    return json.dumps(_c().list_project_emails(project_id), indent=2)
+    return json.dumps(
+        _c().list_project_emails(project_id, limit=limit, offset=offset), indent=2
+    )
 
 
 @mcp.tool()
@@ -502,9 +733,13 @@ def add_email_to_project(
 
 
 @mcp.tool()
-def get_project_invoices(project_id: str) -> str:
+def get_project_invoices(
+    project_id: str, limit: ListLimit = 50, offset: ListOffset = 0
+) -> str:
     """Get all invoices for a project."""
-    return json.dumps(_c().get_project_invoices(project_id), indent=2)
+    return json.dumps(
+        _c().get_project_invoices(project_id, limit=limit, offset=offset), indent=2
+    )
 
 
 @mcp.tool()
@@ -529,11 +764,9 @@ def delete_invoice(project_id: str, invoice_id: str, confirm: bool = False) -> s
     Confirm with the user before calling this tool with confirm=True.
     """
     if not confirm:
-        return json.dumps(
-            {
-                "error": "delete_invoice requires confirm=True. Confirm this action with the user before proceeding."
-            },
-            indent=2,
+        return _confirmation_required(
+            "delete_invoice",
+            "delete_invoice requires confirm=True. Confirm this action with the user before proceeding.",
         )
     return json.dumps(_c().delete_invoice(project_id, invoice_id), indent=2)
 
@@ -546,11 +779,9 @@ def finalize_invoice(project_id: str, invoice_id: str, confirm: bool = False) ->
     Confirm with the user before calling this tool with confirm=True.
     """
     if not confirm:
-        return json.dumps(
-            {
-                "error": "finalize_invoice requires confirm=True. Confirm this action with the user before proceeding."
-            },
-            indent=2,
+        return _confirmation_required(
+            "finalize_invoice",
+            "finalize_invoice requires confirm=True. Confirm this action with the user before proceeding.",
         )
     return json.dumps(_c().finalize_invoice(project_id, invoice_id), indent=2)
 
@@ -569,11 +800,9 @@ def approve_invoice(invoice_id: str, confirm: bool = False) -> str:
     Confirm with the user before calling this tool with confirm=True.
     """
     if not confirm:
-        return json.dumps(
-            {
-                "error": "approve_invoice requires confirm=True. Confirm this action with the user before proceeding."
-            },
-            indent=2,
+        return _confirmation_required(
+            "approve_invoice",
+            "approve_invoice requires confirm=True. Confirm this action with the user before proceeding.",
         )
     return json.dumps(_c().approve_invoice(invoice_id), indent=2)
 
@@ -588,9 +817,15 @@ def mark_invoice_sent(invoice_id: str) -> str:
 
 
 @mcp.tool()
-def list_contacts(page: int = 1, page_size: int = 50) -> str:
+def list_contacts(
+    limit: ListLimit = 50,
+    offset: ListOffset = 0,
+    page: LegacyPage | None = None,
+    page_size: ListLimit | None = None,
+) -> str:
     """List all contacts."""
-    return json.dumps(_c().list_contacts(page, page_size), indent=2)
+    limit, offset = _legacy_pagination(limit, offset, page, page_size)
+    return json.dumps(_c().list_contacts(limit=limit, offset=offset), indent=2)
 
 
 @mcp.tool()
@@ -649,27 +884,43 @@ def update_contact(
 
 
 @mcp.tool()
-def get_contact_addresses(contact_id: str) -> str:
+def get_contact_addresses(
+    contact_id: str, limit: ListLimit = 50, offset: ListOffset = 0
+) -> str:
     """Get all addresses for a contact."""
-    return json.dumps(_c().get_contact_addresses(contact_id), indent=2)
+    return json.dumps(
+        _c().get_contact_addresses(contact_id, limit=limit, offset=offset), indent=2
+    )
 
 
 @mcp.tool()
-def get_contact_emails(contact_id: str) -> str:
+def get_contact_emails(
+    contact_id: str, limit: ListLimit = 50, offset: ListOffset = 0
+) -> str:
     """Get all email addresses for a contact."""
-    return json.dumps(_c().get_contact_emails(contact_id), indent=2)
+    return json.dumps(
+        _c().get_contact_emails(contact_id, limit=limit, offset=offset), indent=2
+    )
 
 
 @mcp.tool()
-def get_contact_phones(contact_id: str) -> str:
+def get_contact_phones(
+    contact_id: str, limit: ListLimit = 50, offset: ListOffset = 0
+) -> str:
     """Get all phone numbers for a contact."""
-    return json.dumps(_c().get_contact_phones(contact_id), indent=2)
+    return json.dumps(
+        _c().get_contact_phones(contact_id, limit=limit, offset=offset), indent=2
+    )
 
 
 @mcp.tool()
-def get_contact_projects(contact_id: str) -> str:
+def get_contact_projects(
+    contact_id: str, limit: ListLimit = 50, offset: ListOffset = 0
+) -> str:
     """Get all projects associated with a contact."""
-    return json.dumps(_c().get_contact_projects(contact_id), indent=2)
+    return json.dumps(
+        _c().get_contact_projects(contact_id, limit=limit, offset=offset), indent=2
+    )
 
 
 @mcp.tool()
@@ -686,11 +937,9 @@ def remove_tag_from_contacts(tag_name: str, confirm: bool = False) -> str:
     Confirm with the user before calling this tool with confirm=True.
     """
     if not confirm:
-        return json.dumps(
-            {
-                "error": "remove_tag_from_contacts requires confirm=True. This removes the tag from ALL matching contacts. Confirm with the user before proceeding."
-            },
-            indent=2,
+        return _confirmation_required(
+            "remove_tag_from_contacts",
+            "remove_tag_from_contacts requires confirm=True. This removes the tag from ALL matching contacts. Confirm with the user before proceeding.",
         )
     return json.dumps(_c().remove_tag_from_contacts(tag_name), indent=2)
 
@@ -699,15 +948,25 @@ def remove_tag_from_contacts(tag_name: str, confirm: bool = False) -> str:
 
 
 @mcp.tool()
-def list_tasks(page: int = 1, page_size: int = 50) -> str:
+def list_tasks(
+    limit: ListLimit = 50,
+    offset: ListOffset = 0,
+    page: LegacyPage | None = None,
+    page_size: ListLimit | None = None,
+) -> str:
     """List all tasks across all projects."""
-    return json.dumps(_c().list_tasks(page, page_size), indent=2)
+    limit, offset = _legacy_pagination(limit, offset, page, page_size)
+    return json.dumps(_c().list_tasks(limit=limit, offset=offset), indent=2)
 
 
 @mcp.tool()
-def list_project_tasks(project_id: str) -> str:
+def list_project_tasks(
+    project_id: str, limit: ListLimit = 50, offset: ListOffset = 0
+) -> str:
     """List all tasks on a specific project."""
-    return json.dumps(_c().list_project_tasks(project_id), indent=2)
+    return json.dumps(
+        _c().list_project_tasks(project_id, limit=limit, offset=offset), indent=2
+    )
 
 
 @mcp.tool()
@@ -761,11 +1020,9 @@ def delete_task(task_id: str, confirm: bool = False) -> str:
     Confirm with the user before calling this tool with confirm=True.
     """
     if not confirm:
-        return json.dumps(
-            {
-                "error": "delete_task requires confirm=True. Confirm this action with the user before proceeding."
-            },
-            indent=2,
+        return _confirmation_required(
+            "delete_task",
+            "delete_task requires confirm=True. Confirm this action with the user before proceeding.",
         )
     return json.dumps(_c().delete_task(task_id), indent=2)
 
@@ -810,9 +1067,15 @@ def snooze_task(task_id: str, due_date: str) -> str:
 
 
 @mcp.tool()
-def list_notes(page: int = 1, page_size: int = 50) -> str:
+def list_notes(
+    limit: ListLimit = 50,
+    offset: ListOffset = 0,
+    page: LegacyPage | None = None,
+    page_size: ListLimit | None = None,
+) -> str:
     """List all notes across all projects."""
-    return json.dumps(_c().list_notes(page, page_size), indent=2)
+    limit, offset = _legacy_pagination(limit, offset, page, page_size)
+    return json.dumps(_c().list_notes(limit=limit, offset=offset), indent=2)
 
 
 @mcp.tool()
@@ -858,9 +1121,22 @@ def unpin_note(note_id: str) -> str:
 
 
 @mcp.tool()
-def list_note_comments(note_id: str) -> str:
-    """List all comments on a note."""
-    return json.dumps(_c().list_note_comments(note_id), indent=2)
+def list_note_comments(
+    note_id: str,
+    limit: ListLimit = 50,
+    offset: ListOffset = 0,
+    order_by_descending: bool = True,
+) -> str:
+    """List note comments, newest first by default."""
+    return json.dumps(
+        _c().list_note_comments(
+            note_id,
+            limit=limit,
+            offset=offset,
+            order_by_descending=order_by_descending,
+        ),
+        indent=2,
+    )
 
 
 @mcp.tool()
@@ -900,11 +1176,9 @@ def remove_tag_from_notes(tag_name: str, confirm: bool = False) -> str:
     Confirm with the user before calling this tool with confirm=True.
     """
     if not confirm:
-        return json.dumps(
-            {
-                "error": "remove_tag_from_notes requires confirm=True. This removes the tag from ALL matching notes. Confirm with the user before proceeding."
-            },
-            indent=2,
+        return _confirmation_required(
+            "remove_tag_from_notes",
+            "remove_tag_from_notes requires confirm=True. This removes the tag from ALL matching notes. Confirm with the user before proceeding.",
         )
     return json.dumps(_c().remove_tag_from_notes(tag_name), indent=2)
 
@@ -913,9 +1187,15 @@ def remove_tag_from_notes(tag_name: str, confirm: bool = False) -> str:
 
 
 @mcp.tool()
-def list_documents(page: int = 1, page_size: int = 50) -> str:
+def list_documents(
+    limit: ListLimit = 50,
+    offset: ListOffset = 0,
+    page: LegacyPage | None = None,
+    page_size: ListLimit | None = None,
+) -> str:
     """List all documents."""
-    return json.dumps(_c().list_documents(page, page_size), indent=2)
+    limit, offset = _legacy_pagination(limit, offset, page, page_size)
+    return json.dumps(_c().list_documents(limit=limit, offset=offset), indent=2)
 
 
 @mcp.tool()
@@ -963,11 +1243,9 @@ def delete_document(document_id: str, confirm: bool = False) -> str:
     Confirm with the user before calling this tool with confirm=True.
     """
     if not confirm:
-        return json.dumps(
-            {
-                "error": "delete_document requires confirm=True. Confirm this action with the user before proceeding."
-            },
-            indent=2,
+        return _confirmation_required(
+            "delete_document",
+            "delete_document requires confirm=True. Confirm this action with the user before proceeding.",
         )
     return json.dumps(_c().delete_document(document_id), indent=2)
 
@@ -1033,9 +1311,22 @@ def batch_download_documents(document_ids_csv: str) -> str:
 
 
 @mcp.tool()
-def search_documents(query: str, page: int = 1, page_size: int = 50) -> str:
-    """Search documents by query string."""
-    return json.dumps(_c().search_documents(query, page, page_size), indent=2)
+def search_documents(
+    query: str,
+    project_id: str,
+    limit: ListLimit = 50,
+    offset: ListOffset = 0,
+) -> str:
+    """Search a project's documents by query string."""
+    return json.dumps(
+        _c().search_documents(
+            query=query,
+            project_id=project_id,
+            limit=limit,
+            offset=offset,
+        ),
+        indent=2,
+    )
 
 
 @mcp.tool()
@@ -1052,28 +1343,46 @@ def remove_tag_from_documents(tag_name: str, confirm: bool = False) -> str:
     Confirm with the user before calling this tool with confirm=True.
     """
     if not confirm:
-        return json.dumps(
-            {
-                "error": "remove_tag_from_documents requires confirm=True. This removes the tag from ALL matching documents. Confirm with the user before proceeding."
-            },
-            indent=2,
+        return _confirmation_required(
+            "remove_tag_from_documents",
+            "remove_tag_from_documents requires confirm=True. This removes the tag from ALL matching documents. Confirm with the user before proceeding.",
         )
     return json.dumps(_c().remove_tag_from_documents(tag_name), indent=2)
 
 
 @mcp.tool()
-def list_recently_opened_documents() -> str:
+def list_recently_opened_documents(
+    limit: ListLimit = 50, offset: ListOffset = 0
+) -> str:
     """List recently opened documents for the current user."""
-    return json.dumps(_c().list_recently_opened_documents(), indent=2)
+    return json.dumps(
+        _c().list_recently_opened_documents(limit=limit, offset=offset), indent=2
+    )
 
 
 # ── Folders ────────────────────────────────────────────────────────────────────
 
 
 @mcp.tool()
-def list_folders(page: int = 1, page_size: int = 50) -> str:
-    """List all document folders."""
-    return json.dumps(_c().list_folders(page, page_size), indent=2)
+def list_folders(
+    limit: ListLimit = 50,
+    offset: ListOffset = 0,
+    ascending_order: bool = False,
+    sort_by_name: bool = False,
+    page: LegacyPage | None = None,
+    page_size: ListLimit | None = None,
+) -> str:
+    """List document folders newest first, optionally sorting by name."""
+    limit, offset = _legacy_pagination(limit, offset, page, page_size)
+    return json.dumps(
+        _c().list_folders(
+            limit=limit,
+            offset=offset,
+            ascending_order=ascending_order,
+            sort_by_name=sort_by_name,
+        ),
+        indent=2,
+    )
 
 
 @mcp.tool()
@@ -1114,11 +1423,9 @@ def delete_folder(folder_id: str, confirm: bool = False) -> str:
     Confirm with the user before calling this tool with confirm=True.
     """
     if not confirm:
-        return json.dumps(
-            {
-                "error": "delete_folder requires confirm=True. Confirm this action with the user before proceeding."
-            },
-            indent=2,
+        return _confirmation_required(
+            "delete_folder",
+            "delete_folder requires confirm=True. Confirm this action with the user before proceeding.",
         )
     return json.dumps(_c().delete_folder(folder_id), indent=2)
 
@@ -1157,9 +1464,14 @@ def get_project_billing_codes(project_id: str) -> str:
 
 
 @mcp.tool()
-def get_project_transactions(project_id: str) -> str:
+def get_project_transactions(
+    project_id: str, limit: ListLimit = 50, offset: ListOffset = 0
+) -> str:
     """Get all billing transactions for a project."""
-    return json.dumps(_c().get_project_transactions(project_id), indent=2)
+    return json.dumps(
+        _c().get_project_transactions(project_id, limit=limit, offset=offset),
+        indent=2,
+    )
 
 
 @mcp.tool()
@@ -1169,9 +1481,14 @@ def get_project_funds(project_id: str) -> str:
 
 
 @mcp.tool()
-def get_project_fund_transactions(project_id: str) -> str:
+def get_project_fund_transactions(
+    project_id: str, limit: ListLimit = 50, offset: ListOffset = 0
+) -> str:
     """Get trust/retainer fund transaction history for a project."""
-    return json.dumps(_c().get_project_fund_transactions(project_id), indent=2)
+    return json.dumps(
+        _c().get_project_fund_transactions(project_id, limit=limit, offset=offset),
+        indent=2,
+    )
 
 
 @mcp.tool()
@@ -1196,11 +1513,9 @@ def create_billing_item(
     Confirm billing details with the user before calling this tool with confirm=True.
     """
     if not confirm:
-        return json.dumps(
-            {
-                "error": "create_billing_item requires confirm=True. Confirm billing details with the user before proceeding."
-            },
-            indent=2,
+        return _confirmation_required(
+            "create_billing_item",
+            "create_billing_item requires confirm=True. Confirm billing details with the user before proceeding.",
         )
     data = _fields(fields_json)
     if description:
@@ -1229,11 +1544,9 @@ def update_billing_item(
     Confirm billing details with the user before calling this tool with confirm=True.
     """
     if not confirm:
-        return json.dumps(
-            {
-                "error": "update_billing_item requires confirm=True. Confirm billing details with the user before proceeding."
-            },
-            indent=2,
+        return _confirmation_required(
+            "update_billing_item",
+            "update_billing_item requires confirm=True. Confirm billing details with the user before proceeding.",
         )
     data = _fields(fields_json)
     if description:
@@ -1253,11 +1566,9 @@ def delete_billing_item(billing_item_id: str, confirm: bool = False) -> str:
     Confirm with the user before calling this tool with confirm=True.
     """
     if not confirm:
-        return json.dumps(
-            {
-                "error": "delete_billing_item requires confirm=True. Confirm this action with the user before proceeding."
-            },
-            indent=2,
+        return _confirmation_required(
+            "delete_billing_item",
+            "delete_billing_item requires confirm=True. Confirm this action with the user before proceeding.",
         )
     return json.dumps(_c().delete_billing_item(billing_item_id), indent=2)
 
@@ -1277,11 +1588,9 @@ def create_payment(
     Confirm the payment amount and project with the user before calling this tool with confirm=True.
     """
     if not confirm:
-        return json.dumps(
-            {
-                "error": "create_payment requires confirm=True. Confirm payment details with the user before proceeding."
-            },
-            indent=2,
+        return _confirmation_required(
+            "create_payment",
+            "create_payment requires confirm=True. Confirm payment details with the user before proceeding.",
         )
     data = _fields(fields_json)
     if amount:
@@ -1307,11 +1616,9 @@ def create_payment_and_apply(
     Confirm the payment amount, project, and invoice with the user before calling this tool with confirm=True.
     """
     if not confirm:
-        return json.dumps(
-            {
-                "error": "create_payment_and_apply requires confirm=True. Confirm payment details with the user before proceeding."
-            },
-            indent=2,
+        return _confirmation_required(
+            "create_payment_and_apply",
+            "create_payment_and_apply requires confirm=True. Confirm payment details with the user before proceeding.",
         )
     data = _fields(fields_json)
     if amount:
@@ -1370,6 +1677,10 @@ def create_webhook_subscription(
 ) -> str:
     """Create a webhook subscription for a Filevine event."""
     data = _fields(fields_json)
+    from filevine_mcp.client import _validate_webhook_fields
+
+    _validate_webhook_fields(data)
+    validate_public_https(target_url)
     return json.dumps(
         _c().create_webhook_subscription(event_name, target_url, **data), indent=2
     )
@@ -1383,7 +1694,11 @@ def update_webhook_subscription(
 ) -> str:
     """Update a webhook subscription."""
     data = _fields(fields_json)
+    from filevine_mcp.client import _validate_webhook_fields
+
+    _validate_webhook_fields(data)
     if target_url:
+        validate_public_https(target_url)
         data["targetUrl"] = target_url
     return json.dumps(
         _c().update_webhook_subscription(subscription_id, **data), indent=2
@@ -1398,11 +1713,9 @@ def delete_webhook_subscription(subscription_id: str, confirm: bool = False) -> 
     Confirm with the user before calling this tool with confirm=True.
     """
     if not confirm:
-        return json.dumps(
-            {
-                "error": "delete_webhook_subscription requires confirm=True. Confirm this action with the user before proceeding."
-            },
-            indent=2,
+        return _confirmation_required(
+            "delete_webhook_subscription",
+            "delete_webhook_subscription requires confirm=True. Confirm this action with the user before proceeding.",
         )
     return json.dumps(_c().delete_webhook_subscription(subscription_id), indent=2)
 
@@ -1411,9 +1724,9 @@ def delete_webhook_subscription(subscription_id: str, confirm: bool = False) -> 
 
 
 @mcp.tool()
-def list_project_types() -> str:
+def list_project_types(limit: ListLimit = 50, offset: ListOffset = 0) -> str:
     """List all project (matter) types configured in the organisation."""
-    return json.dumps(_c().list_project_types(), indent=2)
+    return json.dumps(_c().list_project_types(limit=limit, offset=offset), indent=2)
 
 
 @mcp.tool()
@@ -1426,9 +1739,9 @@ def get_project_type(project_type_id: str) -> str:
 
 
 @mcp.tool()
-def list_document_series() -> str:
+def list_document_series(limit: ListLimit = 50, last_id: ListOffset = 0) -> str:
     """List all document series templates."""
-    return json.dumps(_c().list_document_series(), indent=2)
+    return json.dumps(_c().list_document_series(limit=limit, last_id=last_id), indent=2)
 
 
 @mcp.tool()
@@ -1441,9 +1754,9 @@ def get_document_series(series_id: str) -> str:
 
 
 @mcp.tool()
-def list_reports() -> str:
+def list_reports(limit: ListLimit = 50, offset: ListOffset = 0) -> str:
     """List all available reports."""
-    return json.dumps(_c().list_reports(), indent=2)
+    return json.dumps(_c().list_reports(limit=limit, offset=offset), indent=2)
 
 
 @mcp.tool()
@@ -1456,9 +1769,9 @@ def get_report(report_id: str) -> str:
 
 
 @mcp.tool()
-def list_share_links() -> str:
+def list_share_links(limit: ListLimit = 50, last_key: str = "") -> str:
     """List all document share links."""
-    return json.dumps(_c().list_share_links(), indent=2)
+    return json.dumps(_c().list_share_links(limit=limit, last_key=last_key), indent=2)
 
 
 @mcp.tool()
@@ -1482,11 +1795,9 @@ def delete_share_link(link_id: str, confirm: bool = False) -> str:
     Confirm with the user before calling this tool with confirm=True.
     """
     if not confirm:
-        return json.dumps(
-            {
-                "error": "delete_share_link requires confirm=True. Confirm this action with the user before proceeding."
-            },
-            indent=2,
+        return _confirmation_required(
+            "delete_share_link",
+            "delete_share_link requires confirm=True. Confirm this action with the user before proceeding.",
         )
     return json.dumps(_c().delete_share_link(link_id), indent=2)
 
@@ -1495,9 +1806,9 @@ def delete_share_link(link_id: str, confirm: bool = False) -> str:
 
 
 @mcp.tool()
-def list_mailroom() -> str:
+def list_mailroom(limit: ListLimit = 50, offset: ListOffset = 0) -> str:
     """List all items in the mailroom."""
-    return json.dumps(_c().list_mailroom(), indent=2)
+    return json.dumps(_c().list_mailroom(limit=limit, offset=offset), indent=2)
 
 
 @mcp.tool()
@@ -1539,11 +1850,9 @@ def delete_team(team_id: str, confirm: bool = False) -> str:
     Confirm with the user before calling this tool with confirm=True.
     """
     if not confirm:
-        return json.dumps(
-            {
-                "error": "delete_team requires confirm=True. Confirm this action with the user before proceeding."
-            },
-            indent=2,
+        return _confirmation_required(
+            "delete_team",
+            "delete_team requires confirm=True. Confirm this action with the user before proceeding.",
         )
     return json.dumps(_c().delete_team(team_id), indent=2)
 

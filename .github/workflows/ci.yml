@@ -1,5 +1,5 @@
 name: CI
-# Thin caller -> shared reusable workflow (RosenAdvertising/oss-workflows@v1). This repo's last CI commit.
+# Thin caller -> shared reusable workflow (RosenAdvertising/oss-workflows@d1bff32cee8cba8f4053c17902d9eaef9eb41a91, v2 commit pin). This repo's last CI commit.
 on:
   push:
     branches: [main, master]
@@ -11,4 +11,4 @@ permissions:
 
 jobs:
   ci:
-    uses: RosenAdvertising/oss-workflows/.github/workflows/ci.yml@v1
+    uses: RosenAdvertising/oss-workflows/.github/workflows/ci.yml@d1bff32cee8cba8f4053c17902d9eaef9eb41a91 # v2

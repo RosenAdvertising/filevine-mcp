@@ -25,6 +25,7 @@ MCP server for [Filevine](https://filevine.com) — full API coverage for legal 
 ## Requirements
 
 - Python 3.10+
+- Python MCP SDK >=2.2,<3 (supports the MCP 2026-07-28 protocol)
 - Claude Desktop (or any MCP-compatible client)
 - Filevine API credentials (Client ID, Client Secret)
 - Filevine region: `us`, `ca`, or `cjis`
@@ -43,7 +44,8 @@ pip install filevine-mcp
 filevine-mcp-setup
 ```
 
-This prompts for your Client ID, Client Secret, Org ID, and region, then tests the credentials and saves them to `~/.filevine-mcp/`.
+This prompts for your Client ID, Client Secret, Org ID, and region, then
+tests the credentials and saves them through the configured credential store.
 
 Verify:
 
@@ -74,12 +76,15 @@ via the cross-platform [`keyring`](https://github.com/jaraco/keyring) library:
 | Windows | Credential Manager                       |
 | Linux   | Secret Service (GNOME Keyring / KWallet) |
 
-Secrets are saved under the service name `filevine-mcp`. Nothing is written to
-disk in clear text.
+Secrets saved to the keyring use the service name `filevine-mcp`.
 
 **File fallback.** On a host with no keyring backend (e.g. a headless Linux box
 without Secret Service), or if you set `FILEVINE_MCP_USE_KEYRING=0`, credentials
 fall back to a `~/.filevine-mcp/.env` file with `0600` permissions.
+
+On Windows, the file is stored in the user's profile and protected by Windows'
+default per-user access rules. On POSIX, files are created with `0600` permissions
+and writes fail closed if private permissions cannot be established.
 
 **Read order.** Credentials resolve in the order OS keyring → process environment
 → `.env` file. So a rotated secret in the keyring always wins, and a
@@ -92,8 +97,8 @@ Filevine uses OAuth 2.0 **client credentials** flow — no browser authorization
 
 | Region | API Host            | Identity Host            |
 | ------ | ------------------- | ------------------------ |
-| us     | api.filevineapp.com | identity.filevineapp.com |
-| ca     | api.filevineapp.ca  | identity.filevineapp.ca  |
+| us     | api.filevineapp.com | identity.filevine.com    |
+| ca     | api.filevineapp.ca  | identity.filevine.ca     |
 | cjis   | api.filevinegov.com | identity.filevinegov.com |
 
 ## Example usage in Claude
@@ -113,3 +118,22 @@ Filevine uses OAuth 2.0 **client credentials** flow — no browser authorization
 ## License
 
 MIT
+
+### Approved destination URLs
+
+Set `FILEVINE_ALLOWED_DESTINATION_HOSTS` in the server environment, for example
+`FILEVINE_ALLOWED_DESTINATION_HOSTS=hooks.firm.example,.integrations.firm.example`.
+Comma-separated exact hosts allow only that host; a leading dot allows the domain
+and its subdomains. Matching ignores case and trailing dots and normalizes IDNA.
+An empty or unset list refuses destination URLs before any request. HTTPS, no
+userinfo, and public literal addresses remain required. This administrator-owned
+list prevents model-supplied destinations from sending data to arbitrary hosts,
+including private-address DNS aliases and unapproved redirectors. Approve only
+hosts whose DNS and redirects the firm trusts; the vendor executes requests later.
+Tools cannot change this setting.
+
+`FILEVINE_REGION` and setup accept only `us`, `ca`, or `cjis`. Values are trimmed and lowercased; unknown values
+fail with an error; they never select a different region. Webhook destinations
+in `fields_json` use an explicit set of destination aliases, validated by the
+same allowlist even inside nested objects and arrays. Unrelated fields such as
+`securityLevel` and `jurisdiction` pass unchanged.
