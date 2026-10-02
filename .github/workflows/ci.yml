@@ -11,4 +11,4 @@ permissions:
 
 jobs:
   ci:
-    uses: RosenAdvertising/oss-workflows/.github/workflows/ci.yml@v1
+    uses: RosenAdvertising/oss-workflows/.github/workflows/ci.yml@v2
