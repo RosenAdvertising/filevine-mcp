@@ -11,6 +11,7 @@ import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
+from threading import Lock
 from urllib.parse import quote
 
 import requests
@@ -23,6 +24,7 @@ from filevine_mcp.url_security import validate_public_https
 from filevine_mcp.private_file import write_private_file
 
 logger = logging.getLogger(__name__)
+_TOKEN_REFRESH_LOCK = Lock()
 
 REGIONS = {
     "us": {
@@ -188,6 +190,17 @@ class TokenManager:
         return time.time() >= expires_at - 60
 
     def fetch(self):
+        # HTTP tools run in worker threads with separate TokenManager instances.
+        # Serialize rotation and reuse tokens another request has already saved.
+        with _TOKEN_REFRESH_LOCK:
+            if getattr(self, "token_file", None) is not None:
+                latest = self._load()
+                if latest != self.tokens and latest.get("access_token"):
+                    self.tokens = latest
+                    return latest
+            return self._fetch()
+
+    def _fetch(self):
         if not CLIENT_ID or not CLIENT_SECRET:
             logger.warning(
                 "Filevine request rejected",

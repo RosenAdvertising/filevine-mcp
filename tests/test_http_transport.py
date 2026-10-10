@@ -2,13 +2,19 @@
 
 import asyncio
 import json
+import os
+import subprocess
+import sys
+import textwrap
+import threading
+import time
 from contextlib import asynccontextmanager
 from importlib.metadata import version
 
 import httpx
 import pytest
 
-from filevine_mcp import server
+from filevine_mcp import client, server
 from test_final_gate_fixes import Response, Session, make_client
 from test_spec_2026_07_28 import SERVER_INFO_META_KEY, _modern_request
 
@@ -164,6 +170,16 @@ def test_default_transport_keeps_existing_stdio_call(monkeypatch, transport):
     assert calls == [((), {})]
 
 
+@pytest.mark.parametrize("transport", ["", "  ", "\t\n"])
+def test_empty_transport_selects_stdio(monkeypatch, transport):
+    monkeypatch.setenv("FILEVINE_MCP_TRANSPORT", transport)
+    assert server._requested_transport() == "stdio"
+    calls = []
+    monkeypatch.setattr(server.mcp, "run", lambda *a, **kw: calls.append((a, kw)))
+    server.main()
+    assert calls == [((), {})]
+
+
 def test_http_transport_selection_is_normalized(monkeypatch):
     calls = []
 
@@ -196,6 +212,19 @@ def test_host_and_port_defaults_and_overrides(monkeypatch):
     monkeypatch.setenv("PORT", "invalid")
     with pytest.raises(SystemExit, match="PORT must be an integer"):
         server._port()
+
+
+@pytest.mark.parametrize("host", ["", "  ", "\t\n"])
+def test_empty_host_yields_loopback_default(monkeypatch, host):
+    monkeypatch.setenv("FILEVINE_MCP_HOST", host)
+    assert server._host() == "127.0.0.1"
+
+
+def test_uppercase_localhost_is_not_loopback(monkeypatch):
+    monkeypatch.setenv("FILEVINE_MCP_HOST", "LOCALHOST")
+    assert server._host() == "LOCALHOST"
+    with pytest.raises(SystemExit, match="FILEVINE_MCP_ALLOWED_HOSTS"):
+        server.create_serve_app()
 
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "::1"])
@@ -287,6 +316,38 @@ def test_modern_methods_and_discovery():
         assert "mcp-session-id" not in response.headers
 
     asyncio.run(check())
+
+
+def test_import_survives_uninstalled_distribution():
+    """Importing the server from a bare checkout must not raise."""
+    probe = textwrap.dedent(
+        """
+        import importlib.metadata as md
+
+        real_version = md.version
+
+        def version(name):
+            if name == "filevine-mcp":
+                raise md.PackageNotFoundError(name)
+            return real_version(name)
+
+        md.version = version
+        import filevine_mcp.server as server
+
+        assert callable(server.main)
+        assert server.mcp.version == "0.0.0+local", server.mcp.version
+        """
+    )
+    env = dict(os.environ)
+    env["PYTHON_KEYRING_BACKEND"] = "keyring.backends.null.Keyring"
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_unknown_tool_still_returns_is_error():
@@ -395,3 +456,42 @@ def test_http_serves_with_uvicorn_and_no_access_log(monkeypatch):
     assert config.access_log is False
     assert server.mcp.session_manager.stateless is True
     assert server.mcp.session_manager.json_response is False
+
+
+def test_concurrent_refreshes_call_the_vendor_refresh_once(monkeypatch, tmp_path):
+    monkeypatch.setattr(client, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(client, "CLIENT_ID", "id")
+    monkeypatch.setattr(client, "CLIENT_SECRET", "secret")
+    monkeypatch.setattr(client, "FILEVINE_PAT", "pat")
+
+    calls = []
+    ready = threading.Barrier(2)
+
+    def post(url, **kwargs):
+        calls.append(url)
+        time.sleep(0.05)
+        body = {"access_token": f"token-{len(calls)}", "expires_in": 3600}
+        return Response(body=body)
+
+    monkeypatch.setattr(client.requests, "post", post)
+
+    first = client.TokenManager()
+    second = client.TokenManager()
+    tokens = {}
+
+    def refresh(name, token_manager):
+        ready.wait(timeout=5)
+        token_manager.fetch()
+        tokens[name] = token_manager.access_token
+
+    threads = [
+        threading.Thread(target=refresh, args=(name, token_manager))
+        for name, token_manager in (("first", first), ("second", second))
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+    assert not any(thread.is_alive() for thread in threads)
+    assert len(calls) == 1
+    assert tokens == {"first": "token-1", "second": "token-1"}

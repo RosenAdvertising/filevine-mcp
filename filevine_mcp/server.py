@@ -6,7 +6,7 @@ import json
 import logging
 import os
 from functools import wraps
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 from typing import Annotated, Literal
 
 from mcp.server import MCPServer
@@ -15,6 +15,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import Field, ValidationError
 from starlette.applications import Starlette
 
+import filevine_mcp
 from filevine_mcp.client import FileVineClient, FilevineClientError
 from filevine_mcp.url_security import UnsafeURL, validate_public_https
 
@@ -85,10 +86,18 @@ class SafeMCPServer(MCPServer):
             ) from None
 
 
+def _package_version() -> str:
+    """Distribution version; falls back when imported from a bare checkout."""
+    try:
+        return version("filevine-mcp")
+    except PackageNotFoundError:
+        return getattr(filevine_mcp, "__version__", "0.0.0+local")
+
+
 mcp = SafeMCPServer(
     "filevine",
     title="Filevine MCP",
-    version=version("filevine-mcp"),
+    version=_package_version(),
     instructions=(
         "Filevine legal practice management. "
         "Manage projects (matters), contacts, tasks, notes, documents, billing, and more. "
