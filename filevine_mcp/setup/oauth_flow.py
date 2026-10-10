@@ -25,6 +25,16 @@ from filevine_mcp.private_file import write_private_file
 
 CONFIG_DIR = Path.home() / ".filevine-mcp"
 
+# Same configuration as the README's "Usage with Claude Desktop" section.
+CLAUDE_DESKTOP_CONFIG = """{
+  "mcpServers": {
+    "filevine": {
+      "command": "uv",
+      "args": ["run", "--locked", "--directory", "/absolute/path/to/filevine-mcp", "filevine-mcp"]
+    }
+  }
+}"""
+
 REGIONS = {
     "us": {
         "api": "https://api.filevineapp.com",
@@ -167,8 +177,11 @@ def _main():
     print(f"✓ Tokens saved to {token_file}")
     print()
     print("Add to your Claude Desktop config:")
+    print(CLAUDE_DESKTOP_CONFIG)
+    print()
     print(
-        json.dumps({"mcpServers": {"filevine": {"command": "filevine-mcp"}}}, indent=2)
+        "Replace /absolute/path/to/filevine-mcp with the path of your clone, "
+        "then restart Claude Desktop."
     )
 
 
