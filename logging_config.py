@@ -1,7 +1,7 @@
 """Structured logging configuration.
 
 Drop into any service-style project. Provides JSON logs to stderr with a
-consistent schema across the fleet.
+consistent schema across services.
 
 Usage:
     from logging_config import configure_logging

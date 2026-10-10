@@ -5,11 +5,22 @@ build-backend = "hatchling.build"
 [project]
 name = "filevine-mcp"
 version = "0.3.0"
-description = "MCP server for Filevine API — full coverage for legal case management"
+description = "MCP server for Filevine: projects, contacts, documents, tasks and billing."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 keywords = ["filevine", "mcp", "legal", "law", "claude", "case-management"]
+classifiers = [
+    "Intended Audience :: Legal Industry",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business",
+]
 dependencies = [
     "mcp>=2.3,<3",
     "requests>=2.34.2",
@@ -29,6 +40,7 @@ filevine-mcp-verify = "filevine_mcp.cli:verify_main"
 
 [project.urls]
 Homepage = "https://github.com/RosenAdvertising/filevine-mcp"
+Repository = "https://github.com/RosenAdvertising/filevine-mcp"
 Issues = "https://github.com/RosenAdvertising/filevine-mcp/issues"
 
 [tool.hatch.build.targets.wheel]

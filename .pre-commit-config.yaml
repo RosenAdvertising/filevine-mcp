@@ -1,6 +1,6 @@
 # Polyglot pre-commit config
 # Propagated by: propagate.py
-# Updated: 2026-05-22 (v2 — polyglot rebuild after fleet survey)
+# Updated: 2026-05-22 (v2 — polyglot rebuild)
 #
 # All hooks gate on file types — a Python-only repo won't run JS hooks because
 # no JS files are staged, and vice versa. This is the single root config for
