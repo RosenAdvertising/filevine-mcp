@@ -25,7 +25,7 @@ MCP server for [Filevine](https://filevine.com) — full API coverage for legal 
 ## Requirements
 
 - Python 3.10+
-- Python MCP SDK >=2.2,<3 (supports the MCP 2026-07-28 protocol)
+- Python MCP SDK >=2.3,<3 (supports the MCP 2026-07-28 protocol)
 - Claude Desktop (or any MCP-compatible client)
 - Filevine API credentials (Client ID, Client Secret)
 - Filevine region: `us`, `ca`, or `cjis`
@@ -64,6 +64,42 @@ filevine-mcp-verify
   }
 }
 ```
+
+## HTTP mode
+
+The default transport is stdio. To serve stateless Streamable HTTP, set
+`FILEVINE_MCP_TRANSPORT=streamable-http`. The MCP endpoint is `/mcp`; the SDK
+supports both modern and legacy clients on this endpoint and keeps its default
+SSE responses so disconnecting clients cancel their requests.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `FILEVINE_MCP_TRANSPORT` | `stdio` | Select `stdio` or `streamable-http`. |
+| `FILEVINE_MCP_HOST` | `127.0.0.1` | HTTP bind address. |
+| `PORT` | `8080` | HTTP port (integer). |
+| `FILEVINE_MCP_ALLOWED_HOSTS` | Unset | Comma-separated Host header values; required for non-loopback binds. Include the port when clients send it, or use `mcp.example.com:*`. |
+| `FILEVINE_MCP_ALLOWED_ORIGINS` | Unset | Comma-separated allowed origins, such as `https://client.example.com`; on non-loopback binds, supplied origins are refused unless allowed. |
+| `FILEVINE_CLIENT_ID` | Stored credential | Filevine client ID. |
+| `FILEVINE_CLIENT_SECRET` | Stored credential | Filevine client secret. |
+| `FILEVINE_PAT` | Stored credential | Filevine personal access token. |
+| `FILEVINE_ORG_ID` | Stored credential | Filevine organization ID. |
+| `FILEVINE_REGION` | `us` | Filevine region: `us`, `ca`, or `cjis` (also resolved from stored configuration). |
+| `FILEVINE_MCP_USE_KEYRING` | `1` | Set to `0` to use the existing environment/file credential fallback. |
+| `FILEVINE_ALLOWED_DESTINATION_HOSTS` | Unset | Existing allowlist for vendor destination URLs, described below. |
+
+HTTP mode uses the same server-side vendor credentials and credential store as
+stdio. Request headers and bodies do not supply Filevine credentials. On
+`127.0.0.1`, `localhost`, or `::1`, the SDK validates loopback Host and Origin
+headers automatically. Other bind addresses require the explicit allowlists
+above; requests without an Origin header remain accepted for allowed hosts.
+
+After configuring credentials with the existing setup command:
+
+```bash
+FILEVINE_MCP_TRANSPORT=streamable-http FILEVINE_MCP_HOST=127.0.0.1 PORT=8080 filevine-mcp
+```
+
+Connect the MCP client to `http://127.0.0.1:8080/mcp`.
 
 ## Credential storage
 

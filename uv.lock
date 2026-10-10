@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -450,7 +450,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "keyring", specifier = ">=25.7.0" },
-    { name = "mcp", specifier = ">=2.2,<3" },
+    { name = "mcp", specifier = ">=2.3,<3" },
     { name = "requests", specifier = ">=2.34.2" },
 ]
 

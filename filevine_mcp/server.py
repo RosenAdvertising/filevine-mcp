@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 """Filevine MCP server — MCP tools for the Filevine API."""
 
+import asyncio
 import json
 import logging
+import os
 from functools import wraps
+from importlib.metadata import version
 from typing import Annotated, Literal
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ResourceError, ToolError
+from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import Field, ValidationError
+from starlette.applications import Starlette
 
 from filevine_mcp.client import FileVineClient, FilevineClientError
 from filevine_mcp.url_security import UnsafeURL, validate_public_https
@@ -82,6 +87,8 @@ class SafeMCPServer(MCPServer):
 
 mcp = SafeMCPServer(
     "filevine",
+    title="Filevine MCP",
+    version=version("filevine-mcp"),
     instructions=(
         "Filevine legal practice management. "
         "Manage projects (matters), contacts, tasks, notes, documents, billing, and more. "
@@ -2004,8 +2011,83 @@ Never pass confirm=True without receiving explicit user confirmation for that sp
 After each confirmed write, report what was done before proceeding to the next step."""
 
 
+STREAMABLE_HTTP_TRANSPORT = "streamable-http"
+
+
+def _requested_transport() -> str:
+    return os.environ.get("FILEVINE_MCP_TRANSPORT", "stdio").strip().lower() or "stdio"
+
+
+def _host() -> str:
+    return os.environ.get("FILEVINE_MCP_HOST", "127.0.0.1").strip() or "127.0.0.1"
+
+
+def _port() -> int:
+    raw = os.environ.get("PORT", "8080").strip()
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise SystemExit(f"PORT must be an integer, got {raw!r}") from exc
+
+
+def _transport_security() -> TransportSecuritySettings | None:
+    if _host() in ("127.0.0.1", "localhost", "::1"):
+        return None
+    allowed_hosts = [
+        value.strip()
+        for value in os.environ.get("FILEVINE_MCP_ALLOWED_HOSTS", "").split(",")
+        if value.strip()
+    ]
+    if not allowed_hosts:
+        raise SystemExit(
+            "FILEVINE_MCP_ALLOWED_HOSTS is required for a non-loopback FILEVINE_MCP_HOST."
+        )
+    allowed_origins = [
+        value.strip()
+        for value in os.environ.get("FILEVINE_MCP_ALLOWED_ORIGINS", "").split(",")
+        if value.strip()
+    ]
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=allowed_hosts,
+        allowed_origins=allowed_origins,
+    )
+
+
+def create_serve_app() -> Starlette:
+    """Build the stateless MCP HTTP app with SDK transport security."""
+    return mcp.streamable_http_app(
+        streamable_http_path="/mcp",
+        host=_host(),
+        stateless_http=True,
+        transport_security=_transport_security(),
+    )
+
+
+async def _serve_streamable_http() -> None:
+    import uvicorn
+
+    config = uvicorn.Config(
+        create_serve_app(),
+        host=_host(),
+        port=_port(),
+        access_log=False,
+    )
+    await uvicorn.Server(config).serve()
+
+
 def main():
-    mcp.run()
+    transport = _requested_transport()
+    if transport == "stdio":
+        mcp.run()
+        return
+    if transport == STREAMABLE_HTTP_TRANSPORT:
+        asyncio.run(_serve_streamable_http())
+        return
+    raise SystemExit(
+        "Unsupported FILEVINE_MCP_TRANSPORT "
+        f"{transport!r}; expected 'stdio' or '{STREAMABLE_HTTP_TRANSPORT}'."
+    )
 
 
 if __name__ == "__main__":
