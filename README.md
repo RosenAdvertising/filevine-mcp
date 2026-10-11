@@ -1,7 +1,7 @@
 # Filevine MCP server
 
 [![CI](https://github.com/RosenAdvertising/filevine-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/RosenAdvertising/filevine-mcp/actions/workflows/ci.yml)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![MCP 2026-07-28](https://img.shields.io/badge/MCP-2026--07--28-7C3AED.svg)](https://modelcontextprotocol.io)
 [![PyPI version](https://img.shields.io/pypi/v/filevine-mcp.svg)](https://pypi.org/project/filevine-mcp/)
@@ -200,7 +200,7 @@ The server also registers three prompts and three resources.
 
 ## Requirements
 
-- Python 3.10 or later.
+- Python 3.10+.
 - Filevine API credentials from your Filevine organisation administrator or developer portal: a client ID, a client secret and a personal access token (PAT), plus your organization ID.
 - Your Filevine region: `us`, `ca` or `cjis`.
 - An MCP client such as Claude Desktop.
